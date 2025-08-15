@@ -5,7 +5,7 @@ import Analytics
 
 st.set_page_config(
     page_title="Maribyrnong Smart City Bins",
-    initial_sidebar_state="auto",
+    initial_sidebar_state="collapsed",
     layout="wide"
 )
 
