@@ -4,6 +4,8 @@
 #FOR ANGUS - COMMAND PROMPT
 python -m venv .venv
 .venv\Scripts\activate.bat
+#OR POWERSHELL
+.venv\Scripts\Activate.ps1
 
 #FOR DEE - ZSH
 python3 -m venv .venv
