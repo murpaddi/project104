@@ -1,0 +1,5 @@
+#Scripts to install a virtual environment for streamlit
+#In command prompt:
+
+python -m venv .venv
+.venv\Scripts\activate.bat
