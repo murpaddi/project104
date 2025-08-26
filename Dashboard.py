@@ -1,30 +1,30 @@
 import streamlit as st
 import pydeck as pdk
 import pandas as pd
+import Utilities as util
+import testing_data as td
 
 def show_dashboard():
+    
+    util.remove_elements()
+
     with st.container():
         st.title("Maribyrnong Smart City Bins Dashboard - Project 104")
         st.divider()
     
     with st.container():
-        st.header("Real-Time Bin Monitoring Chart")
+        st.header("Real-Time Bin Monitoring Map")
+        deck_obj = util.load_map(td.df) # Replace with actual data source
+        st.pydeck_chart(deck_obj)
 
-        view_state = pdk.ViewState(
-            latitude=-37.7932,
-            longitude=144.8990,
-            zoom=17
-        )
+    with st.container():
+        st.header("Bin Data Overview")
 
-        bin_locations_layer = pdk.Layer(
-            "ScatterPlotLayer",
-            data = None, # replace with actual data source
-            get_position = "[lng, lat]",
-            get_radius = 5,
-            pickable = True
-        )
-
-        st.pydeck_chart(pdk.Deck(
-            layers = [bin_locations_layer],
-            initial_view_state=view_state
-        ))
+        col1, col2 = util.double_column()
+        with col1:
+            st.subheader("Bin Status Summary Table")
+            st.dataframe(td.bin_data) # Replace with actual data source
+            
+        with col2:
+            st.subheader("Urgent Alerts")
+            st.write("Alerts Placeholder")
