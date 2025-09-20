@@ -14,7 +14,7 @@ def show_dashboard():
     
     with st.container():
         st.header("Real-Time Bin Monitoring Map")
-        deck_obj = util.load_map(td.df) # Replace with actual data source
+        deck_obj = util.load_map(td.map_coords) # Replace with actual data source
         st.pydeck_chart(deck_obj)
 
     with st.container():
@@ -27,4 +27,4 @@ def show_dashboard():
             
         with col2:
             st.subheader("Urgent Alerts")
-            st.write("Alerts Placeholder")
+            st.dataframe(td.urgent_bin_columns) # Replace with actual data source

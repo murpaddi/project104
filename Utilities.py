@@ -18,6 +18,7 @@ def remove_elements():
         unsafe_allow_html=True
     )
 
+
 def load_map(data):
     view_state = pdk.ViewState(
             latitude=-37.7932,
@@ -28,7 +29,7 @@ def load_map(data):
     bin_locations_layer = pdk.Layer(
             "ScatterplotLayer",
             data = data, # replace with actual data source
-            get_position = ['lng', 'lat'],
+            get_position = ['Lng', 'Lat'],
             get_color = [255, 0, 0, 160],
             get_radius = 4,
             pickable = True
@@ -38,8 +39,9 @@ def load_map(data):
             initial_view_state=view_state,
             tooltip={
                 "text": 
-                "Lat: {lat}\n "
-                "Lng: {lng}"
+                "Bin ID: {BinID}\n "
+                "Latitude: {Lat}\n "
+                "Longitude: {Lng}"
                 }
         )
     
