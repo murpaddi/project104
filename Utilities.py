@@ -40,8 +40,9 @@ def load_map(data):
             tooltip={
                 "text": 
                 "Bin ID: {BinID}\n "
-                "Latitude: {Lat}\n "
-                "Longitude: {Lng}"
+                "Fill: {Fill}\n "
+                "Temp: {Temp}\n "
+                "Battery: {Battery}%"
                 }
         )
     

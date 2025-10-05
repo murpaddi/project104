@@ -1,21 +1,22 @@
-from pathlib import Path
 import pandas as pd
+from Model.data_loader import load_merged_data
 
-df = pd.DataFrame({
-    'lat': [-37.7932],
-    'lng': [144.8990]
-})
 
-#Replace with actual data source
-CSV_PATH = Path(__file__).with_name("Random_Bin_Data.csv")
-if not CSV_PATH.exists():
-    raise FileNotFoundError(f"Could not find {CSV_PATH}")
+bin_data = load_merged_data().set_index("BinID")
 
-bin_data = pd.read_csv(CSV_PATH, index_col='BinID')
+map_data = (
+    bin_data.loc[bin_data["HasCoords"], ["Lat", "Lng", "Fill", "Temp", "Battery"]]
+    .reset_index()
+)
 
-#Replace with actual data source
-urgent_alerts = bin_data[(bin_data['Fill'] >= 85) | (bin_data['Temp'] >= 60) | (bin_data['Battery'] <= 20)]
-urgent_bin_columns = urgent_alerts[['Fill', 'Temp', 'Battery']]
+URGENT_FILL = 85
+URGENT_TEMP = 60
+LOW_BATTERY = 20
 
-map_coords = bin_data[['Lat', 'Lng']].copy()
-map_coords["BinID"] = map_coords.index
+urgent_alerts = bin_data[
+    (bin_data["Fill"] >= URGENT_FILL) |
+    (bin_data["Temp"] >= URGENT_TEMP) |
+    (bin_data["Battery"] <= LOW_BATTERY)
+].copy()
+
+urgent_bin_columns = urgent_alerts[["Fill", "Temp", "Battery"]]
