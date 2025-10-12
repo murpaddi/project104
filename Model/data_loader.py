@@ -1,40 +1,28 @@
 from pathlib import Path
 import pandas as pd
 
-ROOT = Path(__file__).parent
+BASE_DIR = Path(__file__).resolve().parent
+DATA_DIR = BASE_DIR / "Data"
 
-RANDOM_DATA_CSV = ROOT / "Random_Bin_Data.csv"
-COORDS_CSV = ROOT / "Coordinates.csv"
+MASTER_CSV = DATA_DIR / "master_sensor_data.csv"
+COORDS_CSV = DATA_DIR / "coordinates.csv"
 
-def read_data() -> pd.DataFrame:
-    if not RANDOM_DATA_CSV.exists():
-        raise FileNotFoundError(f"Could not find {RANDOM_DATA_CSV}")
-    df = pd.read_csv(RANDOM_DATA_CSV)
-
-    for col in ("Fill", "Temp", "Battery"):
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
-    return df 
-
-def read_coords() -> pd.DataFrame:
-    if not COORDS_CSV.exists():
-        raise FileNotFoundError(f"Could not find {COORDS_CSV}")
-    return pd.read_csv(COORDS_CSV)
-
-def load_merged_data() -> pd.DataFrame:
-    bins = read_data()
-    coords = read_coords()
-
-    if "BinID" not in bins.columns:
-        raise KeyError("`BinID` not found in Random_Bin_Data.csv")
-    if "BinID" not in coords.columns:
-        raise KeyError("`BinID` not found in Coordinates.csv")
-
-    merged = pd.merge(
-        bins,
-        coords[["BinID", "Lat", "Lng"]],
-        on="BinID",                
-        how="left"
+def load_live_with_coords() -> pd.DataFrame:
+    live = pd.read_csv(MASTER_CSV)
+    coords = pd.read_csv(COORDS_CSV)
+    merged = live.merge(
+        coords[["bin_id", "sensor_id", "lat", "lng"]],
+        on="sensor_id",
+        how = "right"
     )
-    merged["HasCoords"] = merged["Lat"].notna() & merged["Lng"].notna() 
+
+    merged.rename(columns={
+        "bin_id": "BinID",
+        "sensor_id": "DeviceID",
+        "lat": "Latitude",
+        "lng": "Longitude",
+        "temperature_c": "Temp",
+        "battery_v": "Battery"
+    }, inplace=True)
+    merged = merged.set_index("bin_id", drop=True)
     return merged
