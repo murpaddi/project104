@@ -1,6 +1,0 @@
-sensor_id,timestamp,fill_level_percent,temperature_c,battery_v,fill_threshold,last_emptied,overflow,overflow_count,last_overflow
-R718X-002,2025-10-06T13:41:08.212911+00:00,40,9.4,3.6,85,,False,0,
-R718X-002,2025-10-06T13:41:09.228418+00:00,40,9.1,3.6,85,,False,0,
-R718X-002,2025-10-06T13:41:10.244629+00:00,41,9.2,3.6,85,,False,0,
-R718X-002,2025-10-06T13:41:11.260317+00:00,41,9.3,3.6,85,,False,0,
-R718X-002,2025-10-06T13:41:12.275686+00:00,41,9.2,3.6,85,,False,0,
