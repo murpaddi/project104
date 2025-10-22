@@ -1,190 +1,136 @@
 import streamlit as st
-import Utilities as util
 import pandas as pd
+from datetime import timedelta
+from Model.data_loader import load_live_with_coords
 import plotly.express as px
-import os
-import numpy as np
-from io import BytesIO
+from View import Utilities as util
 
-
-# ---- Helper function to simulate time-series data ----
-def _make_temp_timeseries(bin_ids) -> pd.DataFrame:
-    """
-    Returns a DataFrame with columns: ['ts','BinID','Temp','Fill'].
-    """
-    times = pd.date_range("2025-01-01 00:00", periods=12, freq="2H")  # 00:00..22:00
-    rows = []
-
-    for b in bin_ids:
-        temp = np.linspace(6, 16, len(times)) + (hash(b) % 5) * 0.2
-        fill = np.linspace(70, 90, len(times))
-        if b == "BIN_001":
-            mid = len(times) // 2
-            fill[mid] = 10  
-
-        for t, tval, fval in zip(times, temp, fill):
-            rows.append({"ts": t, "BinID": b, "Temp": float(tval), "Fill": float(fval)})
-
-    return pd.DataFrame(rows)
-
-
-# ---- Helper: Convert DataFrame to Excel ----
-def to_excel(df):
-    output = BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df.to_excel(writer, index=False, sheet_name='Sheet1')
-    return output.getvalue()
 
 
 # ---- Main Page ----
 def show_analytics():
     util.remove_elements()
+    st.title("Smart Bin Analytics")
 
-    # ---- Theme-Aware CSS Styling ----
-    st.markdown("""
-        <style>
-            :root {
-                --bg-color: var(--background-color);
-                --text-color: var(--text-color);
-                --secondary-bg-color: var(--secondary-background-color);
-            }
-
-            /* Section title boxes */
-            .section-box {
-                background: rgba(255, 255, 255, 0.03);
-                border: 1px solid rgba(255, 255, 255, 0.1);
-                border-left: 4px solid #00b4d8;
-                border-radius: 10px;
-                padding: 0.8rem 1.2rem;
-                margin: 1.5rem 0 0.8rem 0;
-                box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
-            }
-            .section-box h2 {
-                margin: 0;
-                font-size: 1.4rem;
-                font-weight: 600;
-                color: var(--text-color);
-            }
-
-            /* Export button styling */
-            div.stDownloadButton > button {
-                background-color: #00b4d8;
-                color: white;
-                border-radius: 8px;
-                padding: 0.4rem 1rem;
-                border: none;
-                font-weight: 500;
-                transition: background-color 0.2s ease-in-out;
-            }
-            div.stDownloadButton > button:hover {
-                background-color: #0090b8;
-            }
-        </style>
-    """, unsafe_allow_html=True)
-
-    # ---- Load and Prepare Data ----
-    csv_path = "Model/Random_Bin_Data.csv"
-    os.makedirs(os.path.dirname(csv_path), exist_ok=True)
-
-    if (not os.path.exists(csv_path)) or os.stat(csv_path).st_size == 0:
-        sample = pd.DataFrame({
-            "BinID": [f"BIN_{i:03d}" for i in range(1, 11)],
-            "Lat":   [-37.7932 + 0.0005*np.random.randn() for _ in range(10)],
-            "Lng":   [144.8990 + 0.0005*np.random.randn() for _ in range(10)],
-            "Fill":  [95, 82, 56, 8, 100, 44, np.nan, 71, 92, 12],
-            "Temp":  [22.5, 23.1, 21.8, 22.0, 24.2, 22.7, 21.9, 23.5, 22.8, 22.3],
-            "Battery": [3.9, 3.8, 3.7, 3.9, 3.8, 3.9, 3.6, 3.8, 3.9, 3.7],
-        })
-        sample.to_csv(csv_path, index=False)
-
-    try:
-        df = pd.read_csv(csv_path)
-    except Exception as e:
-        st.error(f"Couldn't read {csv_path}: {e}")
+    enabled, interval = util.auto_refresh_controls()
+    #Load latest master data
+    df = load_live_with_coords()
+    if df.empty:
+        st.warning("No live data available. Please start the simulator.")
         return
+    
+    st.subheader("Overall Summary")
 
-    if "Fill" not in df.columns:
-        st.error("Your CSV is missing a 'Fill' column. Columns found: " + ", ".join(map(str, df.columns)))
-        return
+    col1, col2 = util.double_column()
 
-    # ---- Derive Bin Status ----
-    fill = pd.to_numeric(df["Fill"], errors="coerce")
-    status = pd.cut(
-        fill,
-        bins=[-np.inf, 10, 69, 89, np.inf],
-        labels=["Empty", "Half Full", "Nearly Full", "Full"]
-    ).astype(object)
-    status[fill.isna()] = "No Data"
-    df["Bin Status"] = status
+    with col1:
+        st.metric("Average Fill", f"{df['Fill'].mean():.1f}%")
+        st.metric("Average Temperature", f"{df['Temp'].mean():.1f}°C")
 
-    # ---- Count bins by status ----
-    order = ["Full", "Nearly Full", "Half Full", "Empty", "No Data"]
-    counts = (
-        df["Bin Status"]
-        .value_counts()
-        .reindex(order, fill_value=0)
-        .rename_axis("Bin Status")
-        .reset_index(name="Count")
-    )
-
-    # ---- Section 1: Bin Status Charts ----
-    st.markdown("<div class='section-box'><h2>Bin Status Overview</h2></div>", unsafe_allow_html=True)
-
-    left_top, right_top = util.double_column()
-    with left_top:
-        st.subheader("Bin Status (Bar Chart)")
-        bar_fig = px.bar(counts, x="Bin Status", y="Count", labels={"Count": "# of bins"})
-        bar_fig.update_layout(xaxis={"categoryorder": "array", "categoryarray": order})
-        st.plotly_chart(bar_fig, use_container_width=True)
-
-    with right_top:
-        st.subheader("Bin Status Distribution")
-        pie_fig = px.pie(
-            counts,
-            names="Bin Status",
-            values="Count",
-            hole=0.35,
+        st.subheader("Fill Level Distribution")
+        fig_hist = px.histogram(
+            df, x ="Fill", nbins=10,
+            color_discrete_sequence=["#0083B8"],
+            title = "Distribution of Bin Fill Levels (%)"
         )
-        pie_fig.update_layout(legend=dict(traceorder="normal"))
-        st.plotly_chart(pie_fig, use_container_width=True)
+        fig_hist.update_layout(xaxis_title="Fill Level (%)", yaxis_title="Count of Bins", bargap=0.15)
+        st.plotly_chart(fig_hist, use_container_width=True)
 
-    # ---- Export Bin Summary ----
-    st.download_button(
-        label="⬇️ Export Bin Summary to Excel",
-        data=to_excel(counts),
-        file_name='Bin_Status_Summary.xlsx',
-        mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-    )
+        
 
-    # ---- Section 2: Time-Series Analysis ----
-    st.markdown("<div class='section-box'><h2>Time-Series Analytics</h2></div>", unsafe_allow_html=True)
 
-    bin_ids = df["BinID"].astype(str).tolist() if "BinID" in df.columns else ["BIN_001", "BIN_002", "BIN_003"]
-    ts = _make_temp_timeseries(bin_ids)
+    with col2:
+        st.metric("Average Battery", f"{df['Battery'].mean():.2f}V")
+        st.metric("Bins Reporting", len(df))
 
-    chosen_bin = st.selectbox("Select a Bin", options=sorted(ts["BinID"].unique()), index=0)
-    sel = ts[ts["BinID"] == chosen_bin].sort_values("ts")
 
-    # ---- Line Charts ----
-    c1, c2 = util.double_column()
+        #Pie Chart
+        st.subheader("Fill Level Distribution")
+        fill_bins = pd.cut(
+            df["Fill"],
+            bins = [0,25,50,75,100],
+            labels=["0-25%", "26-50%", "51-75%", "76-100%"]
+        )
+        fill_counts = fill_bins.value_counts().sort_index()
+        fig = px.pie(
+            values=fill_counts.values,
+            names=fill_counts.index,
+            color_discrete_sequence=px.colors.qualitative.Set2,
+            hole=0.15,
+            title="Proportion of Bins by Fill Range"
+        )
+        st.plotly_chart(fig, use_container_width=True)
+    
+    st.divider()
 
-    with c1:
-        st.subheader("Temperature Over Time")
-        temp_fig = px.line(sel, x="ts", y="Temp", markers=True, labels={"ts": "", "Temp": "°C"})
-        temp_fig.update_layout(yaxis_title="°C")
-        st.plotly_chart(temp_fig, use_container_width=True)
+    st.header("Individual Bin Analysis")
 
-    with c2:
-        st.subheader("Fill Level Over Time")
-        fill_fig = px.line(sel, x="ts", y="Fill", markers=True, labels={"ts": "", "Fill": "%"})
-        fill_fig.update_layout(yaxis_title="%", yaxis_range=[0, 100])
-        st.plotly_chart(fill_fig, use_container_width=True)
+    col1, col2 = util.double_column()
+    bin_ids = df.index.astype(str).tolist()
+    with col1:
+        selected_bin = st.selectbox("Select a Bin", bin_ids, key="bin_inspect")
+    
+    with col2:
+        window = st.selectbox(
+            "Time Window",
+            ["Hourly", "12 hours", "24 hours", "7 days"],
+            index = 2,
+            key="analytics_window"
+            )
 
-    # ---- Export the Original Data ----
-    st.markdown("<div class='section-box'><h2>Export Full Dataset</h2></div>", unsafe_allow_html=True)
-    st.download_button(
-        label="⬇️ Export Bin Data to Excel",
-        data=to_excel(df),
-        file_name='All_Bin_Data.xlsx',
-        mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-    )
+        WINDOWS = {
+            "Hourly": timedelta(hours=1),
+            "12 hours": timedelta(hours=12),
+            "24 hours": timedelta(hours=24),
+            "7 Days": timedelta(days=7)
+            }
+
+    if selected_bin:
+            device_id = str(df.loc[selected_bin, "DeviceID"])
+            log_df = util.load_bin_log(device_id)
+
+            if log_df.empty:
+                 st.info(f"No log data found for device {device_id}.")
+            else:
+
+                if "Timestamp" in log_df.columns and not log_df["Timestamp"].empty:
+                    now = log_df["Timestamp"].max()
+                    delta = WINDOWS[window]
+                    start_time = now - delta
+                    log_window = log_df[log_df["Timestamp"].between(start_time, now)]
+                else:
+                    log_window = log_df.copy()
+                    start_time = None
+                    now = None
+
+                c1, c2 = util.double_column()
+
+                with c1:
+                    st.subheader("Fill Level Over Time")
+                    fig_fill = px.line(
+                        log_window, x = "Timestamp", y = "Fill",
+                        title = f"Fill Level Trend - {selected_bin}",
+                        markers = True
+                    )
+                    kw = dict(yaxis_title="Fill Level (%)", yaxis_range=[0, 100])
+                    if start_time is not None:
+                        kw["xaxis_range"] = [start_time, now]
+                    fig_fill.update_layout(**kw)
+                    st.plotly_chart(fig_fill, use_container_width=True)              
+            
+                with c2:
+                    st.subheader("Temperature Over Time")
+                    fig_temp = px.line(
+                        log_window, x = "Timestamp", y = "Temp",
+                        title = "Temperature Flux", markers = True
+                    )
+                    kw = dict(yaxis_title="Temperature (°C)", yaxis_range=[-5, 60], xaxis_title=None)
+                    if start_time is not None:
+                        kw["xaxis_range"] = [start_time, now]
+                    fig_temp.update_layout(**kw)
+                    st.plotly_chart(fig_temp, use_container_width=True)
+                
+                if log_window.empty:
+                    st.info(f"No data in the selected window ({window})")
+                
+    util.maybe_autorefresh(enabled, interval)
