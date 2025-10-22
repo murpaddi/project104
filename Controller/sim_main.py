@@ -5,11 +5,14 @@ import pandas as pd
 from Model.NetvoxR718x import NetvoxR718x
 
 INTERVAL_MINUTES = 15
-WRITE_INTERVAL_SECONDS = 1 #For accelerated testing
+WRITE_INTERVAL_SECONDS = 900 #Change for accelerated testing
 
 BASE_DIR = Path(__file__).resolve().parent.parent / "Model"
 DATA_DIR = BASE_DIR / "Data"
+LOGS_DIR = DATA_DIR / "Logs"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
+LOGS_DIR.mkdir(parents=True, exist_ok=True)
+
 
 MASTER_CSV = DATA_DIR / "master_sensor_data.csv"
 COORDS_CSV = DATA_DIR / "coordinates.csv"
@@ -23,7 +26,7 @@ if COORDS_CSV.exists():
 def main():
     sensors = []
     coords_rows = []
-    for i in range (1, 5):
+    for i in range (1, 13):
         sensor_id = f"R718X-{i:03d}"
         bin_id = f"BIN-{i:03d}"
         lat = random.uniform(-37.7923, -37.7942)
@@ -48,7 +51,7 @@ def main():
 
     csv_paths = {}
     for s in sensors:
-        per_sensor_csv = DATA_DIR / f"{s.sensor_id}_data_log.csv"
+        per_sensor_csv = LOGS_DIR / f"{s.sensor_id}_data_log.csv"
         if per_sensor_csv.exists():
             per_sensor_csv.unlink()
         csv_paths[s.sensor_id] = per_sensor_csv
