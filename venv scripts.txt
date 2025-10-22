@@ -13,3 +13,7 @@ source .venv/bin/activate
 
 #Exit venv
 deactivate
+
+#Run python modules
+python -m pip install pandas
+python -m Controller.sim_main
