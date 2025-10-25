@@ -126,7 +126,7 @@ class NetvoxR718x:
 
 
 
-    def attempt_empty_event(self, base_threshold: int = 80, per_point_prob: float = 0.0005) -> bool:
+    def attempt_empty_event(self, base_threshold: int = 80, per_point_prob: float = 0.005) -> bool:
         if self.fill_level_percent < base_threshold:
             return False
         

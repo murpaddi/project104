@@ -5,7 +5,7 @@ import pandas as pd
 from Model.NetvoxR718x import NetvoxR718x
 
 INTERVAL_MINUTES = 15
-WRITE_INTERVAL_SECONDS = 900 #Change for accelerated testing
+WRITE_INTERVAL_SECONDS = 2 #Change for accelerated testing
 
 BASE_DIR = Path(__file__).resolve().parent.parent / "Model"
 DATA_DIR = BASE_DIR / "Data"
@@ -26,7 +26,7 @@ if COORDS_CSV.exists():
 def main():
     sensors = []
     coords_rows = []
-    for i in range (1, 13):
+    for i in range (1, 25):
         sensor_id = f"R718X-{i:03d}"
         bin_id = f"BIN-{i:03d}"
         lat = random.uniform(-37.7923, -37.7942)
@@ -45,7 +45,7 @@ def main():
 
         coords_rows.append({"bin_id": bin_id, "sensor_id": sensor_id, "lat": lat, "lng": lng})
     
-    coords_df = pd.DataFrame(coords_rows).to_csv(COORDS_CSV, index=False)
+    pd.DataFrame(coords_rows).to_csv(COORDS_CSV, index=False)
     print(f"Coordinates saved to {COORDS_CSV}")
         
 

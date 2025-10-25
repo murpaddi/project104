@@ -10,11 +10,16 @@ from View import Utilities as util
 # ---- Main Page ----
 def show_analytics():
     util.remove_elements()
+    key_prefix = "ana_"
+
     st.title("Smart Bin Analytics")
 
-    enabled, interval = util.auto_refresh_controls()
+    enabled, interval = util.auto_refresh_controls(key_prefix=key_prefix)
     #Load latest master data
     df = load_live_with_coords()
+
+    if "Timestamp" in df.columns:
+        df["Timestamp"] = pd.to_datetime(df["Timestamp"]).dt.strftime("%d %b %Y, %-I:%M %p")
     if df.empty:
         st.warning("No live data available. Please start the simulator.")
         return
@@ -36,7 +41,7 @@ def show_analytics():
         fig_hist.update_layout(xaxis_title="Fill Level (%)", yaxis_title="Count of Bins", bargap=0.15)
         st.plotly_chart(fig_hist, use_container_width=True)
 
-        
+
 
 
     with col2:
@@ -68,20 +73,22 @@ def show_analytics():
     col1, col2 = util.double_column()
     bin_ids = df.index.astype(str).tolist()
     with col1:
-        selected_bin = st.selectbox("Select a Bin", bin_ids, key="bin_inspect")
+        selected_bin = st.selectbox("Select a Bin", bin_ids, key=f"{key_prefix}bin_select")
     
     with col2:
         window = st.selectbox(
             "Time Window",
-            ["Hourly", "12 hours", "24 hours", "7 days"],
+            ["1 Minute (testing)", "Hourly", "6 Hours", "12 Hours", "24 Hours", "7 Days"],
             index = 2,
-            key="analytics_window"
+            key=f"{key_prefix}window_select"
             )
 
         WINDOWS = {
+            "1 Minute (testing)": timedelta(minutes=1),
             "Hourly": timedelta(hours=1),
-            "12 hours": timedelta(hours=12),
-            "24 hours": timedelta(hours=24),
+            "6 Hours": timedelta(hours=6),
+            "12 Hours": timedelta(hours=12),
+            "24 Hours": timedelta(hours=24),
             "7 Days": timedelta(days=7)
             }
 
@@ -132,5 +139,7 @@ def show_analytics():
                 
                 if log_window.empty:
                     st.info(f"No data in the selected window ({window})")
+
+
                 
     util.maybe_autorefresh(enabled, interval)
