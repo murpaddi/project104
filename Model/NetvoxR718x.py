@@ -126,12 +126,13 @@ class NetvoxR718x:
 
 
 
-    def attempt_empty_event(self, base_threshold: int = 80, per_point_prob: float = 0.005) -> bool:
+    def attempt_empty_event(self, base_threshold: int = 85) -> bool:
         if self.fill_level_percent < base_threshold:
             return False
         
-        over = self.fill_level_percent - base_threshold
-        chance = min(1.0, over * per_point_prob)
+        # Logistic curve: slow rise → steep increase → cap at 100%
+        x = self.fill_level_percent - base_threshold
+        chance = 1 / (1 + math.exp(-0.06 * (x - 30)))  # tweak steepness here
         if random.random() < chance:
             self.empty_event(residue_percent=random.randint(0, 2))
             return True

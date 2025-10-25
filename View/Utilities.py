@@ -21,9 +21,13 @@ def remove_elements():
             [data-testid="stElementToolbar"] {
             display: none;
             }
+
+            div[data-testid="stStatusWidget"] { display: none !important; }
+            #stDecoration { display: none !important; }
+            footer { visibility: hidden !important; }
             </style>
         """,
-        unsafe_allow_html=True
+        unsafe_allow_html=True  
     )
 
 
