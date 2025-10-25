@@ -7,7 +7,11 @@ from Model.data_loader import load_live_with_coords
 import time
 
 def double_column():
-    column1, _, column2= st.columns([1, .1, 1])
+    column1, _, column2= st.columns([1, .05, 1])
+    return column1,column2
+
+def two_to_one():
+    column1, _, column2 = st.columns([2, 0.05, 1])
     return column1,column2
 
 def remove_elements():
@@ -24,6 +28,20 @@ def remove_elements():
 
 
 def load_map(data: pd.DataFrame) -> pdk.Deck:
+    if data is None or data.empty:
+        return pdk.Deck()
+    
+    df = data.copy()
+    if "Fill" not in df.columns:
+        st.warning("No Fill column found for map display.")
+        return pdk.Deck()
+
+    import numpy as np
+    fill = pd.to_numeric(df["Fill"], errors="coerce").fillna(0).clip(0, 100)
+    ratio = fill / 100.0
+
+    df["color"] = [[int(r * 255), int((1 - r) * 255), 0, 200] for r in ratio]
+
     view_state = pdk.ViewState(
             latitude=-37.7932,
             longitude=144.8990,
@@ -32,25 +50,28 @@ def load_map(data: pd.DataFrame) -> pdk.Deck:
     
     bin_locations_layer = pdk.Layer(
             "ScatterplotLayer",
-            data = data, # replace with actual data source
+            data = df,
             get_position = ['Lng', 'Lat'],
-            get_color = [255, 0, 0, 160],
+            get_fill_color = "color",
             get_radius = 4,
             pickable = True
         )
-    deck = pdk.Deck(
+    
+    tooltip = {
+        "html": (
+            "<b>Bin ID:</b> {BinID}<br/>"
+            "<b>Fill:</b> {Fill}%<br/>"
+            "<b>Temp:</b> {Temp}°C<br/>"
+            "<b>Battery:</b> {Battery}V"
+        ),
+        "style": {"backgroundColor": "rgba(255, 255, 255, 0.8)", "color": "black"},
+    }
+
+    return pdk.Deck(
             layers = [bin_locations_layer],
             initial_view_state=view_state,
-            tooltip={
-                "text": 
-                "Bin ID: {BinID}\n "
-                "Fill: {Fill}\n "
-                "Temp: {Temp}\n "
-                "Battery: {Battery}%"
-                }
+            tooltip=tooltip
         )
-    
-    return deck
 
 def render_table(df: pd.DataFrame, *, use_container_width=True, height=300):
     if df is None or df.empty:
@@ -168,14 +189,14 @@ def filter_urgent(df, *, fill_thresh=85, temp_thresh=60):
 def _cached_load():
     return load_live_with_coords()
 
-def refresh_button(label: str = "Refresh Data") -> bool:
+def refresh_button(label: str = "Refresh Now", key: str | None = None) -> bool:
     with st.sidebar:
-        return st.button(label)
+        return st.button(label, key=key)
 
-def auto_refresh_controls():
+def auto_refresh_controls(key_prefix=""):
     with st.sidebar:
-        enabled = st.toggle("Auto-refresh", value=True)
-        interval = st.slider("Refresh interval (sec)", 1, 60, 5)
+        enabled = st.toggle("Auto-refresh", value=True, key=f"{key_prefix}auto_refresh_enabled")
+        interval = st.slider("Refresh interval (sec)", 2, 60, 2, key=f"{key_prefix}auto_refresh_interval")
         st.caption("Dashboard will re-run periodically while enabled.")
     return enabled, interval
 
