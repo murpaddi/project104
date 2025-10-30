@@ -124,14 +124,6 @@ def prep_map_data(df: pd.DataFrame) -> pd.DataFrame:
         map_df = map_df.rename(columns={"Latitude": "Lat", "Longitude":"Lng"})
     return map_df
 
-def filter_urgent(df: pd.DataFrame, *, fill_thresh: int = 85, temp_thresh: float = 40.0) -> pd.DataFrame:
-    if df.empty:
-        return df
-    df_reset = df.reset_index()
-    mask = (df_reset.get("Fill", pd.Series(dtype=float)) >= fill_thresh) | (
-        df_reset.get("Temp", pd.Series(dtype=float)) >= temp_thresh
-    )
-    return df_reset[mask]
 
 def df_to_excel_bytes(df: pd.DataFrame) -> bytes:
     """Return a bytes payload for an Excel download from a DataFrame."""
@@ -157,7 +149,7 @@ def render_map_section(map_data: pd.DataFrame):
     st.subheader("Real Time Bin Monitoring Map")
     st.pydeck_chart(load_map(map_data))
 
-def filter_urgent(df, *, fill_thresh=85, temp_thresh=60):
+def filter_urgent(df, *, fill_thresh=85, temp_thresh=40):
     if df.empty:
         return df
 
