@@ -53,8 +53,8 @@ def main():
 
         coords_rows.append({"bin_id": bin_id, "sensor_id": sensor_id, "lat": lat, "lng": lng})
     
-    pd.DataFrame(coords_rows).to_csv(COORDS_CSV, index=False) #Remove eventually, keeping for testing/debugging
-    print(f"Coordinates saved to {COORDS_CSV}")
+    # pd.DataFrame(coords_rows).to_csv(COORDS_CSV, index=False) #Remove eventually, keeping for testing/debugging
+    # print(f"Coordinates saved to {COORDS_CSV}")
 
     # repo.upsert_static_bins(pd.DataFrame(coords_rows)) #Inserts rows to supabase. Make defunct later.
     # print("Static bin coordinates upserted to Supabase.")
