@@ -17,3 +17,7 @@ deactivate
 #Run python modules
 python -m pip install pandas
 python -m Controller.sim_main
+
+Database password: GX1YNKqnlbCVPzTi
+
+postgresql+psycopg2://postgres:GX1YNKqnlbCVPzTi@db.uplrxiyofnwfxnqkhwkm.supabase.co:5432/postgres?sslmode=require

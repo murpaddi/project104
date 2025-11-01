@@ -3,7 +3,7 @@ import random
 import math
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
-import time
+from typing import Optional
 
 class NetvoxR718x:
     def __init__(self, 
@@ -39,8 +39,8 @@ class NetvoxR718x:
         self.timestamp = datetime.now(timezone.utc)
 
         #Event timestamps
-        self.last_emptied: str | None = None
-        self.last_overflow: str | None = None
+        self.last_emptied: Optional[datetime] | None = None
+        self.last_overflow: Optional[datetime] | None = None
 
         # Enable traffic-based fill simulation
         self.enable_traffic = enable_traffic
@@ -65,7 +65,7 @@ class NetvoxR718x:
     def to_dict(self) -> dict:
         return {
             "sensor_id": self.sensor_id,
-            "timestamp": self.timestamp.isoformat(),
+            "timestamp": self.timestamp,
             # "lat": self.lat,
             #"lng": self.lng,
             "fill_level_percent": round(self.fill_level_percent),
@@ -102,7 +102,7 @@ class NetvoxR718x:
             if not self.overflow:
                 self.overflow = True
                 self.overflow_count += 1
-                self.last_overflow = now.isoformat()
+                self.last_overflow = now
             self.fill_level_percent = 100.0
         else:
             self.fill_level_percent = max(0.0, proposed)
@@ -120,7 +120,7 @@ class NetvoxR718x:
 
     def empty_event(self, residue_percent: int = 0):
         self.fill_level_percent = max(0, residue_percent)
-        self.last_emptied = datetime.now(timezone.utc).isoformat()
+        self.last_emptied = datetime.now(timezone.utc)
         if getattr(self, 'overflow', False):
             self.overflow = False
 
