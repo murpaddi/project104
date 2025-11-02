@@ -8,27 +8,35 @@ from Model.NetvoxR718x import NetvoxR718x
 from Model import repository as repo
 
 INTERVAL_MINUTES = 15
-WRITE_INTERVAL_SECONDS = 900 #Change for accelerated testing
+WRITE_INTERVAL_SECONDS = 5 #Change for accelerated testing
 
+#SET UP DATA DIRECTORIES FOR LOCAL CSV LOGGING (MAKE DEFUNCT LATER)
 BASE_DIR = Path(__file__).resolve().parent.parent / "Model"
 DATA_DIR = BASE_DIR / "Data"
 LOGS_DIR = DATA_DIR / "Logs"
-DATA_DIR.mkdir(parents=True, exist_ok=True)
-LOGS_DIR.mkdir(parents=True, exist_ok=True)
+
 
 
 MASTER_CSV = DATA_DIR / "master_sensor_data.csv"
 COORDS_CSV = DATA_DIR / "coordinates.csv"
 
-RESET_MASTER = True
-if RESET_MASTER and MASTER_CSV.exists():
-    MASTER_CSV.unlink()
-if COORDS_CSV.exists():
-    COORDS_CSV.unlink()
+RESET_MASTER = True #Set to True to reset master CSV on each run
+RESET_DB = True #Set to True to reset DB on each run
 
-RESET_DB = False #Set to True to reset DB on each run
+WRITE_LOCAL_CSV = False
+
+if WRITE_LOCAL_CSV:
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    LOGS_DIR.mkdir(parents=True, exist_ok=True)
+
+    if RESET_MASTER and MASTER_CSV.exists():
+        MASTER_CSV.unlink()
+    if COORDS_CSV.exists():
+        COORDS_CSV.unlink()
+
 
 def main():
+    print("Starting smart bin data simulation...")
     if RESET_DB:
         repo.reset_all(preserve_static=True) #Change to True to keep static data
         print("Database reset completed.")
@@ -58,8 +66,6 @@ def main():
 
     # repo.upsert_static_bins(pd.DataFrame(coords_rows)) #Inserts rows to supabase. Make defunct later.
     # print("Static bin coordinates upserted to Supabase.")
-        
-    WRITE_LOCAL_CSV = False #Set to False to disable local CSV logging
 
     csv_paths = {}
     for s in sensors:
@@ -83,6 +89,7 @@ def main():
                 #Failsafe if class timestamp not updated correctly.
                 s.timestamp = datetime.now(timezone.utc)
 
+                #Build row for database
                 row = s.to_dict()
 
                 #Convert timestamp strings to datetime objects for DB write
@@ -93,6 +100,7 @@ def main():
                 rows_to_write.append(row)
 
                 df_one = pd.DataFrame([row])
+                print(f"[{s.sensor_id}] {df_one.to_string(index=False, header = False)}")
 
                 if WRITE_LOCAL_CSV:
                     #Append to sensor specific CSV
@@ -111,13 +119,11 @@ def main():
                         header=master_header_needed, 
                         index=False
                     )
-                    master_header_needed = False
-
-                    # Print to console
-                    print(f"[{s.sensor_id}] {df_one.to_string(index=False, header = False)}")
+                    master_header_needed = False         
                 
             try:
                 repo.write_archive_rows(rows_to_write)
+                print(f"[DB WRITE OK] wrote {len(rows_to_write)} rows to archive at {datetime.now(timezone.utc).isoformat()}")
             except Exception as e:
                 print(f"[DB WRITE ERROR] {e}")
 
