@@ -39,8 +39,8 @@ def show_dashboard():
         with col1:
             st.subheader("Bin Status Summary Table")
             summary_cols = [
-                "Timestamp", "Fill", "Temp", "Battery",
-                "Last Emptied", "Overflow Count", "Last Overflow"
+                "Timestamp", "Fill", "Temperature", "Battery",
+                "Last Emptied", "Overflow #", "Last Overflow"
             ]
 
             display_df = df.copy()

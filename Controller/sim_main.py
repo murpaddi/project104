@@ -8,7 +8,8 @@ from Model.NetvoxR718x import NetvoxR718x
 from Model import repository as repo
 
 INTERVAL_MINUTES = 15
-WRITE_INTERVAL_SECONDS = 5 #Change for accelerated testing
+WRITE_INTERVAL_SECONDS = 60 #Change for accelerated testing
+POLL_SECONDS = 5
 
 #SET UP DATA DIRECTORIES FOR LOCAL CSV LOGGING (MAKE DEFUNCT LATER)
 BASE_DIR = Path(__file__).resolve().parent.parent / "Model"
@@ -77,10 +78,20 @@ def main():
     header_needed_per_sensor = {s.sensor_id: True for s in sensors}
     master_header_needed = not MASTER_CSV.exists()
 
+    #Random offset to stagger writes
+    next_write_time = {
+        s.sensor_id: time.time() + random.uniform(0, WRITE_INTERVAL_SECONDS)
+        for s in sensors
+    }
+
     try:
         while True:
+            now = time.time()
             rows_to_write = []
             for s in sensors:
+                due = now >= next_write_time[s.sensor_id]
+                if not due:
+                    continue
                 s.simulate_changes(dt_minutes=INTERVAL_MINUTES)
                 s.update_temperature()
                 s.attempt_empty_event()
@@ -119,16 +130,19 @@ def main():
                         header=master_header_needed, 
                         index=False
                     )
-                    master_header_needed = False         
+                    master_header_needed = False
+
+                next_write_time[s.sensor_id] = now + random.uniform(1, WRITE_INTERVAL_SECONDS)         
                 
-            try:
-                repo.write_archive_rows(rows_to_write)
-                print(f"[DB WRITE OK] wrote {len(rows_to_write)} rows to archive at {datetime.now(timezone.utc).isoformat()}")
-            except Exception as e:
-                print(f"[DB WRITE ERROR] {e}")
+            if rows_to_write:    
+                try:
+                    repo.write_archive_rows(rows_to_write)
+                    print(f"[DB WRITE OK] wrote {len(rows_to_write)} rows to archive at {datetime.now(timezone.utc).isoformat()}")
+                except Exception as e:
+                    print(f"[DB WRITE ERROR] {e}")
 
 
-            time.sleep(WRITE_INTERVAL_SECONDS)
+            time.sleep(POLL_SECONDS)
 
     except KeyboardInterrupt:
         print("\nStream stopped.")

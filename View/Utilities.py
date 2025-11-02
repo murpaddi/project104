@@ -65,7 +65,7 @@ def load_map(data: pd.DataFrame) -> pdk.Deck:
         "html": (
             "<b>Bin ID:</b> {BinID}<br/>"
             "<b>Fill:</b> {Fill}%<br/>"
-            "<b>Temp:</b> {Temp}°C<br/>"
+            "<b>Temperature:</b> {Temperature}°C<br/>"
             "<b>Battery:</b> {Battery}V"
         ),
         "style": {"backgroundColor": "rgba(255, 255, 255, 0.8)", "color": "black"},
@@ -88,7 +88,7 @@ def get_latest_df(show_errors: bool = True) -> pd.DataFrame:
         return _cached_load()
     except FileNotFoundError:
         if show_errors:
-            st.error("Required CSV files not found. Please run the simulator first.")
+            st.error("No data found in the database yet.")
         return pd.DataFrame()
     except Exception as e:
         if show_errors:
@@ -96,23 +96,22 @@ def get_latest_df(show_errors: bool = True) -> pd.DataFrame:
         return pd.DataFrame()
     
 def load_bin_log(device_id: str) -> pd.DataFrame:
-    """Load individual bin logs from Models/Logs directory"""
-
-    file_path = Path("Model/Data/Logs") / f"{device_id}_data_log.csv"
-    if not file_path.exists():
-        return pd.DataFrame()
+    """Load historical readings for a single bin from the DB archive"""
+    from Model.data_loader import load_archive_with_coords
     try:
-        df = pd.read_csv(file_path)
+        df = load_archive_with_coords(device_id)
+        if df.empty:
+            return df
+        
+        need = ["Timestamp", "Fill", "Temperature", "Battery"]
+        for c in need:
+            if c not in df.columns:
+                df[c] = pd.NA
+        return df[need + [c for c in df.columns if c not in need]]
+    except Exception:
+        return pd.DataFrame()
 
-        df = df.rename(columns={
-            "timestamp": "Timestamp",
-            "fill_level_percent": "Fill",
-            "temperature_c": "Temp",
-            "battery_v": "Battery"
-        })
-        if "Timestamp" in df.columns:
-            df["Timestamp"] = pd.to_datetime(df["Timestamp"], errors="coerce", utc=True).dt.tz_convert("Australia/Melbourne")
-        return df
+
     except Exception:
         return pd.DataFrame()
     

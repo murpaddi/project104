@@ -30,7 +30,7 @@ def show_analytics():
 
     with col1:
         st.metric("Average Fill", f"{df['Fill'].mean():.1f}%")
-        st.metric("Average Temperature", f"{df['Temp'].mean():.1f}°C")
+        st.metric("Average Temperature", f"{df['Temperature'].mean():.1f}°C")
 
         st.subheader("Fill Level Distribution")
         fig_hist = px.histogram(
@@ -78,13 +78,14 @@ def show_analytics():
     with col2:
         window = st.selectbox(
             "Time Window",
-            ["1 Minute (testing)", "Hourly", "6 Hours", "12 Hours", "24 Hours", "7 Days"],
-            index = 2,
+            ["1 Minute (testing)", "15 Minutes (testing)", "Hourly", "6 Hours", "12 Hours", "24 Hours", "7 Days"],
+            index = 1,
             key=f"{key_prefix}window_select"
             )
 
         WINDOWS = {
             "1 Minute (testing)": timedelta(minutes=1),
+            "15 Minutes (testing)": timedelta(minutes=15),
             "Hourly": timedelta(hours=1),
             "6 Hours": timedelta(hours=6),
             "12 Hours": timedelta(hours=12),
@@ -128,7 +129,7 @@ def show_analytics():
                 with c2:
                     st.subheader("Temperature Over Time")
                     fig_temp = px.line(
-                        log_window, x = "Timestamp", y = "Temp",
+                        log_window, x = "Timestamp", y = "Temperature",
                         title = "Temperature Flux", markers = True
                     )
                     kw = dict(yaxis_title="Temperature (°C)", yaxis_range=[-5, 60], xaxis_title=None)
