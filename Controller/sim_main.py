@@ -8,7 +8,7 @@ from Model.NetvoxR718x import NetvoxR718x
 from Model import repository as repo
 
 INTERVAL_MINUTES = 15
-WRITE_INTERVAL_SECONDS = 60 #Change for accelerated testing
+WRITE_INTERVAL_SECONDS = 900 #Change for accelerated testing
 POLL_SECONDS = 5
 
 #SET UP DATA DIRECTORIES FOR LOCAL CSV LOGGING (MAKE DEFUNCT LATER)
@@ -22,7 +22,7 @@ MASTER_CSV = DATA_DIR / "master_sensor_data.csv"
 COORDS_CSV = DATA_DIR / "coordinates.csv"
 
 RESET_MASTER = True #Set to True to reset master CSV on each run
-RESET_DB = True #Set to True to reset DB on each run
+RESET_DB = False #Set to True to reset DB on each run
 
 WRITE_LOCAL_CSV = False
 
