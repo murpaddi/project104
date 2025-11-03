@@ -14,7 +14,8 @@ source .venv/bin/activate
 #Exit venv
 deactivate
 
-#Run python modules
+#within venv
+python -m pip install -r dependencies.txt
 
 Database password: GX1YNKqnlbCVPzTi
 
