@@ -21,6 +21,4 @@ python -m Model.test_db_connection
 
 Database password: GX1YNKqnlbCVPzTi
 
-$env:DATABASE_URL="postgresql+psycopg2://postgres:GX1YNKqnlbCVPzTi@db.uplrxiyofnwfxnqkhwkm.supabase.co:5432/postgres?sslmode=require"
-
-postgresql://postgres.uplrxiyofnwfxnqkhwkm:GX1YNKqnlbCVPzTi@aws-1-ap-southeast-2.pooler.supabase.com:5432/postgres
+$env:DATABASE_URL = "postgresql+psycopg2://postgres.uplrxiyofnwfxnqkhwkm:GX1YNKqnlbCVPzTi@aws-1-ap-southeast-2.pooler.supabase.com:6543/postgres?sslmode=require"

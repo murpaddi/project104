@@ -126,19 +126,20 @@ class NetvoxR718x:
 
 
 
-    def attempt_empty_event(self, base_threshold: int = 85) -> bool:
-        if self.fill_level_percent < base_threshold:
-            return False
+    def attempt_empty_event(self, base_threshold: int = 85, empty_chance = 0.4) -> bool:
+        if self.fill_level_percent >= base_threshold:
+            overfill_factor = min((self.fill_level_percent - base_threshold) / 20, 1.0)
+            prob = empty_chance + (overfill_factor * (1 - empty_chance))
+
+            if random.random() < prob:
+                self.fill_level_percent = 0
+                self.last_emptied = datetime.now()
+                self.overflow = False
+            else:
+                if self.fill_level_percent > 100:
+                    self.fill_level_percent = min(self.fill_level_percent + random.uniform(0,5), 120)
+                    self.overflow = True
         
-        # Logistic curve: slow rise → steep increase → cap at 100%
-        x = self.fill_level_percent - base_threshold
-        chance = 1 / (1 + math.exp(-0.06 * (x - 30)))  # tweak steepness here
-        if random.random() < chance:
-            self.empty_event(residue_percent=random.randint(0, 2))
-            return True
-        return False
-
-
 
     def update_temperature(self):
         """Simulate temperature based on time of day."""
