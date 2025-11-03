@@ -15,9 +15,6 @@ source .venv/bin/activate
 deactivate
 
 #Run python modules
-python -m pip install pandas
-python -m Controller.sim_main
-python -m Model.test_db_connection
 
 Database password: GX1YNKqnlbCVPzTi
 
