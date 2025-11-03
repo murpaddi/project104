@@ -43,7 +43,7 @@ def main():
         print("Database reset completed.")
     sensors = []
     coords_rows = []
-    for i in range (1, 6):
+    for i in range (1, 25):
         sensor_id = f"R718X-{i:03d}"
         bin_id = f"BIN-{i:03d}"
         lat = random.uniform(-37.7923, -37.7942)
