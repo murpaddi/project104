@@ -8,15 +8,13 @@ from Model.NetvoxR718x import NetvoxR718x
 from Model import repository as repo
 
 INTERVAL_MINUTES = 15
-WRITE_INTERVAL_SECONDS = 900 #Change for accelerated testing
+WRITE_INTERVAL_SECONDS = 5 #Change for accelerated testing
 POLL_SECONDS = 5
 
 #SET UP DATA DIRECTORIES FOR LOCAL CSV LOGGING (MAKE DEFUNCT LATER)
 BASE_DIR = Path(__file__).resolve().parent.parent / "Model"
 DATA_DIR = BASE_DIR / "Data"
 LOGS_DIR = DATA_DIR / "Logs"
-
-
 
 MASTER_CSV = DATA_DIR / "master_sensor_data.csv"
 COORDS_CSV = DATA_DIR / "coordinates.csv"
@@ -43,7 +41,7 @@ def main():
         print("Database reset completed.")
     sensors = []
     coords_rows = []
-    for i in range (1, 25):
+    for i in range (1, 7):
         sensor_id = f"R718X-{i:03d}"
         bin_id = f"BIN-{i:03d}"
         lat = random.uniform(-37.7923, -37.7942)
