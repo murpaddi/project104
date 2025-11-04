@@ -192,11 +192,11 @@ def filter_urgent(df, *, fill_thresh=85, temp_thresh=40, battery_thresh=3.2):
         if pd.notna(f) and f >= 100:
             return "Overflowing"
         if pd.notna(f) and f >= fill_thresh:
-            return f"Approaching full (≥{fill_thresh}%)"
+            return f"Approaching full"
         if pd.notna(t) and t >= temp_thresh:
-            return f"Heat Warning (≥{temp_thresh}°C)"
+            return f"Heat Warning"
         if pd.notna(b) and b <= battery_thresh:
-            return f"Low Battery (≤{battery_thresh:.1f}V)"
+            return f"Low Battery"
         return "Needs attention"
     
     if "BinID" not in urgent.columns and urgent.index.name == "BinID":
