@@ -158,7 +158,7 @@ def filter_urgent(df: pd.DataFrame, *, fill_thresh: int=85, temp_thresh: int=40,
         snap = snap.rename(columns={"Temp": "Temperature"})
 
     snap["Fill"] = pd.to_numeric(snap.get("Fill"), errors="coerce")
-    snap["Temperature"] = pd.to_numeric(snap.get("Temperature"), errors="coerce")
+    snap["Temperature"] = pd.to_numeric(snap.get("Temperature") or snap.get("Temp"), errors="coerce")
     snap["Battery"] = pd.to_numeric(snap.get("Battery"), errors="coerce")
 
     # Base urgent mask
