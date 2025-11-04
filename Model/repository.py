@@ -172,9 +172,14 @@ def truncate_static():
     with engine().begin() as conn:
         conn.exec_driver_sql("TRUNCATE smartbins.static_bin_data;")
 
-#Make defunct at later time
-def reset_all(*, preserve_static: bool = True):
+
+def reset_tables(*, preserve_archive: bool = True, preserve_static: bool = True):
+    """
+    preserve_archive: True = keeps sensor data intact
+    preserve_static: True = keeps static table intact
+    """
     with engine().begin() as conn:
-        conn.exec_driver_sql("TRUNCATE smartbins.archive_bin_data RESTART IDENTITY;")
+        if not preserve_archive:
+            conn.exec_driver_sql("TRUNCATE smartbins.archive_bin_data RESTART IDENTITY;")
         if not preserve_static:
             conn.exec_driver_sql("TRUNCATE smartbins.static_bin_data;")

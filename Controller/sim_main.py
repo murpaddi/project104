@@ -39,7 +39,7 @@ if WRITE_LOCAL_CSV:
 def main():
     print("Starting smart bin data simulation...")
     if RESET_DB:
-        repo.reset_all(preserve_static=True) #Change to True to keep static data
+        repo.reset_tables(preserve_archive=True, preserve_static=True) #Change to False to keep static data
         print("Database reset completed.")
     sensors = []
     coords_rows = []
@@ -65,8 +65,8 @@ def main():
     # pd.DataFrame(coords_rows).to_csv(COORDS_CSV, index=False) #Remove eventually, keeping for testing/debugging
     # print(f"Coordinates saved to {COORDS_CSV}")
 
-    # repo.upsert_static_bins(pd.DataFrame(coords_rows)) #Inserts rows to supabase. Make defunct later.
-    # print("Static bin coordinates upserted to Supabase.")
+    repo.upsert_static_bins(pd.DataFrame(coords_rows)) #Inserts rows to supabase.
+    print("Static bin coordinates upserted to Supabase.")
 
     csv_paths = {}
     for s in sensors:
