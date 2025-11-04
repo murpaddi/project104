@@ -198,6 +198,11 @@ def filter_urgent(df, *, fill_thresh=85, temp_thresh=40, battery_thresh=3.2):
         if pd.notna(b) and b <= battery_thresh:
             return f"Low Battery (≤{battery_thresh:.1f}V)"
         return "Needs attention"
+    
+    if "BinID" not in urgent.columns and urgent.index.name == "BinID":
+        urgent = urgent.reset_index()
+    elif "BinID" not in urgent.columns:
+        urgent["BinID"] = urgent.index.astype(str)
 
     urgent["Alert"] = urgent.apply(classify, axis=1)
 

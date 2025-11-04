@@ -20,3 +20,4 @@ python -m pip install -r dependencies.txt
 Database password: GX1YNKqnlbCVPzTi
 
 $env:DATABASE_URL = "postgresql+psycopg2://postgres.uplrxiyofnwfxnqkhwkm:GX1YNKqnlbCVPzTi@aws-1-ap-southeast-2.pooler.supabase.com:6543/postgres?sslmode=require"
+set DATABASE_URL=postgresql+psycopg2://postgres.uplrxiyofnwfxnqkhwkm:GX1YNKqnlbCVPzTi@aws-1-ap-southeast-2.pooler.supabase.com:6543/postgres?sslmode=require
