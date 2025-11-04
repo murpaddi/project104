@@ -148,34 +148,47 @@ def render_map_section(map_data: pd.DataFrame):
     st.subheader("Real Time Bin Monitoring Map")
     st.pydeck_chart(load_map(map_data))
 
-def filter_urgent(df, *, fill_thresh=85, temp_thresh=40):
-    if df.empty:
+def filter_urgent(df: pd.DataFrame, *, fill_thresh: int=85, temp_thresh: int=40, battery_thresh: float=3.2):
+    if df is None or df.empty:
         return df
 
     snap = df.reset_index().copy()
+
+    if "Temperature" not in snap.columns and "Temp" in snap.columns:
+        snap = snap.rename(columns={"Temp": "Temperature"})
+
     snap["Fill"] = pd.to_numeric(snap.get("Fill"), errors="coerce")
-    snap["Temp"] = pd.to_numeric(snap.get("Temp"), errors="coerce")
+    snap["Temperature"] = pd.to_numeric(snap.get("Temperature"), errors="coerce")
     snap["Battery"] = pd.to_numeric(snap.get("Battery"), errors="coerce")
 
     # Base urgent mask
-    mask = (snap["Fill"] >= fill_thresh) | (snap["Temp"] >= temp_thresh) | (snap["Battery"] <= 3.0)
+    mask = (
+        (snap["Fill"] >= fill_thresh) | 
+        (snap["Temp"] >= temp_thresh) | 
+        (snap["Battery"] <= battery_thresh)
+    )
 
     urgent = snap[mask].copy()
     if urgent.empty:
         return urgent
 
     def classify(row):
-        if pd.isna(row["Fill"]) or pd.isna(row["Temp"]):
+
+        if pd.isna(row["Fill"]) and pd.isna(row["Temp"]) and pd.isna(row["Battery"]):
             return "No sensor response"
-        if row["Fill"] >= 100:
+        
+        if pd.notna(row["Fill"]) and row["Fill"] >= 100:
             return "Overflowing"
-        if row["Fill"] >= 85:
+        
+        if pd.notna(row["Fill"]) and row["Fill"] >= fill_thresh:
             return "Approaching full"
-        if row["Temp"] >= 40:
+        
+        if pd.notna(row["Temperature"]) and row["Temperature"] >= temp_thresh:
             return "Heat Warning"
-        if row["Battery"] <= 3.2:
+        
+        if pd.notna(row["Battery"]) and row["Battery"] <= battery_thresh:
             return "Low Battery"
-        return None
+        return "Needs attention"
 
     urgent["Alert"] = urgent.apply(classify, axis=1)
     return urgent
