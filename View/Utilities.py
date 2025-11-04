@@ -148,50 +148,60 @@ def render_map_section(map_data: pd.DataFrame):
     st.subheader("Real Time Bin Monitoring Map")
     st.pydeck_chart(load_map(map_data))
 
-def filter_urgent(df: pd.DataFrame, *, fill_thresh: int=85, temp_thresh: int=40, battery_thresh: float=3.2):
+def filter_urgent(df, *, fill_thresh=85, temp_thresh=40, battery_thresh=3.2):
     if df is None or df.empty:
         return df
 
-    snap = df.reset_index().copy()
+    snap = df.reset_index(drop=True).copy()
 
-    if "Temperature" not in snap.columns and "Temp" in snap.columns:
+    # Resolve canonical columns coming from data_loader (_rename_ui)
+    # We expect: Fill, Temperature, Battery
+    if "Fill" in snap.columns:
+        snap["Fill"] = pd.to_numeric(snap["Fill"], errors="coerce")
+    if "Temperature" in snap.columns:
+        snap["Temperature"] = pd.to_numeric(snap["Temperature"], errors="coerce")
+    elif "Temp" in snap.columns:
         snap = snap.rename(columns={"Temp": "Temperature"})
+        snap["Temperature"] = pd.to_numeric(snap["Temperature"], errors="coerce")
+    if "Battery" in snap.columns:
+        snap["Battery"] = pd.to_numeric(snap["Battery"], errors="coerce")
 
-    snap["Fill"] = pd.to_numeric(snap.get("Fill"), errors="coerce")
-    snap["Temperature"] = pd.to_numeric(snap.get("Temperature") or snap.get("Temp"), errors="coerce")
-    snap["Battery"] = pd.to_numeric(snap.get("Battery"), errors="coerce")
-
-    # Base urgent mask
-    mask = (
-        (snap["Fill"] >= fill_thresh) | 
-        (snap["Temp"] >= temp_thresh) | 
-        (snap["Battery"] <= battery_thresh)
-    )
+    # Build mask with the SAME columns the classifier will use
+    mask = False
+    if "Fill" in snap.columns:
+        mask = (snap["Fill"] >= fill_thresh)
+    if "Temperature" in snap.columns:
+        mask = mask | (snap["Temperature"] >= temp_thresh)
+    if "Battery" in snap.columns:
+        mask = mask | (snap["Battery"] <= battery_thresh)
 
     urgent = snap[mask].copy()
     if urgent.empty:
         return urgent
 
     def classify(row):
+        f = row.get("Fill")
+        t = row.get("Temperature")
+        b = row.get("Battery")
 
-        if pd.isna(row["Fill"]) and pd.isna(row["Temp"]) and pd.isna(row["Battery"]):
+        # Only if ALL missing do we call it "No sensor response"
+        if pd.isna(f) and pd.isna(t) and pd.isna(b):
             return "No sensor response"
-        
-        if pd.notna(row["Fill"]) and row["Fill"] >= 100:
+
+        if pd.notna(f) and f >= 100:
             return "Overflowing"
-        
-        if pd.notna(row["Fill"]) and row["Fill"] >= fill_thresh:
-            return "Approaching full"
-        
-        if pd.notna(row["Temperature"]) and row["Temperature"] >= temp_thresh:
-            return "Heat Warning"
-        
-        if pd.notna(row["Battery"]) and row["Battery"] <= battery_thresh:
-            return "Low Battery"
+        if pd.notna(f) and f >= fill_thresh:
+            return f"Approaching full (≥{fill_thresh}%)"
+        if pd.notna(t) and t >= temp_thresh:
+            return f"Heat Warning (≥{temp_thresh}°C)"
+        if pd.notna(b) and b <= battery_thresh:
+            return f"Low Battery (≤{battery_thresh:.1f}V)"
         return "Needs attention"
 
     urgent["Alert"] = urgent.apply(classify, axis=1)
-    return urgent
+
+    keep = [c for c in ["BinID", "Timestamp", "Alert"] if c in urgent.columns]
+    return urgent[keep] if keep else urgent
 
 @st.cache_data(ttl=2)
 def _cached_load():

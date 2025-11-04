@@ -24,6 +24,9 @@ def show_dashboard():
    
     #Prepare map and alerts
     map_data = util.prep_map_data(df)
+
+    st.caption(f"Columns: {list(df.columns)}")
+    st.write(df[["Fill","Temperature","Battery"]].dtypes if all(c in df.columns for c in ["Fill","Temperature","Battery"]) else "Key cols missing")
     urgent_df = util.filter_urgent(df)
 
     with st.container():
