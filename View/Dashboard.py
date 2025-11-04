@@ -69,7 +69,6 @@ def show_dashboard():
                     key="export_urgent_btn",
                 )
             else:
-                urgent_df = urgent_df.rename(columns={"SensorID": "BinID", "sensor_id": "BinID", "DeviceID": "BinID", "device_id": "BinID"})
                 urgent_df = urgent_df.set_index("BinID", drop=True)
                 urgent_display = urgent_df.copy()
                 if "Timestamp" in urgent_display.columns:

@@ -153,7 +153,7 @@ def filter_urgent(df, *, fill_thresh=85, temp_thresh=40, battery_thresh=3.2):
     if df is None or df.empty:
         return df
 
-    snap = df.reset_index(drop=True).copy()
+    snap = df.reset_index().copy()
 
     # Resolve canonical columns coming from data_loader (_rename_ui)
     # We expect: Fill, Temperature, Battery
