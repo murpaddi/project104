@@ -148,6 +148,7 @@ def render_map_section(map_data: pd.DataFrame):
     st.subheader("Real Time Bin Monitoring Map")
     st.pydeck_chart(load_map(map_data))
 
+
 def filter_urgent(df, *, fill_thresh=85, temp_thresh=40, battery_thresh=3.2):
     if df is None or df.empty:
         return df
