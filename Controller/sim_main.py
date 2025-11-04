@@ -8,7 +8,7 @@ from Model.NetvoxR718x import NetvoxR718x
 from Model import repository as repo
 
 INTERVAL_MINUTES = 15
-WRITE_INTERVAL_SECONDS = 5 #Change for accelerated testing
+WRITE_INTERVAL_SECONDS = 900 #Change for accelerated testing
 POLL_SECONDS = 5
 
 #SET UP DATA DIRECTORIES FOR LOCAL CSV LOGGING (MAKE DEFUNCT LATER)
