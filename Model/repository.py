@@ -56,11 +56,19 @@ def write_archive_rows(rows: Iterable[Mapping]):
     sql = f"""
         INSERT INTO {_archive} ({", ".join(cols)})
         VALUES ({", ".join([f":{c}" for c in cols])})
-        ON CONFLICT (sensor_id, "timestamp") DO NOTHING;
+        ON CONFLICT (sensor_id, "timestamp") DO NOTHING
+        RETURNING 1;
     """
 
+    inserted = 0
     with engine().begin() as conn:
-        conn.execute(text(sql), df.to_dict(orient="records"))
+        res = conn.execute(text(sql), df.to_dict(orient="records"))
+        try:
+            inserted = len(res.fetchall())
+        except Exception:
+            inserted = res.rowcount or 0
+
+    print(f"DB insert summary: attempted={len(df)} inserted={inserted} (conflicts={len(df)-inserted})")
 
 def upsert_static_bins(df_coords: pd.DataFrame):
     df = df_coords[["bin_id", "sensor_id", "lat", "lng"]].copy()
