@@ -20,6 +20,9 @@ MIN_SLEEP_SECONDS = int(os.environ.get("MIN_SLEEP_SECONDS", "1"))
 LAT_MIN, LAT_MAX = -37.7942, -37.7923
 LNG_MIN, LNG_MAX = 144.8988, 144.9002
 
+USE_WEATHER_TEMP = os.environ.get("USE_WEATHER_TEMP", "1") == "1"
+WEATHER_JITTER_C = float(os.environ.get("WEATHER_JITTER_C", "0.0"))
+
 # === HELPER ===
 
 def _advance_sensor(s):
@@ -31,9 +34,12 @@ def _advance_sensor(s):
 # === MAIN ===
 
 def main():
-    print(f"Booting simulators: SIM_COUNT={SIM_COUNT}, WRITE_INTERVAL_SECONDS={WRITE_INTERVAL_SECONDS}, "
-          f"MANAGE_STATIC={MANAGE_STATIC}, SKIP_STARTUP_EMIT={SKIP_STARTUP_EMIT}, HEARTBEAT_SECS={HEARTBEAT_SECS}, "
-          f"REPORT_JITTER_SECONDS={REPORT_JITTER_SECONDS}, MIN_SLEEP_SECONDS={MIN_SLEEP_SECONDS}")
+    print(
+        f"Booting simulators: SIM_COUNT={SIM_COUNT}, WRITE_INTERVAL_SECONDS={WRITE_INTERVAL_SECONDS}, "
+        f"MANAGE_STATIC={MANAGE_STATIC}, SKIP_STARTUP_EMIT={SKIP_STARTUP_EMIT}, HEARTBEAT_SECS={HEARTBEAT_SECS}, "
+        f"REPORT_JITTER_SECONDS={REPORT_JITTER_SECONDS}, MIN_SLEEP_SECONDS={MIN_SLEEP_SECONDS}, "
+        f"USE_WEATHER_TEMP={USE_WEATHER_TEMP}, WEATHER_JITTER_C={WEATHER_JITTER_C}"
+    )
     
     repo.ensure_archive_unique_index()
 
@@ -125,6 +131,28 @@ def main():
                     max_jitter = min(REPORT_JITTER_SECONDS, max(WRITE_INTERVAL_SECONDS -1, 0))
                     jitter = random.randint(-max_jitter, max_jitter)
                 next_due[sid] = due + pd.Timedelta(seconds=max(1, WRITE_INTERVAL_SECONDS + jitter))
+
+
+        if rows_to_write and USE_WEATHER_TEMP:
+            try:
+                sensor_ids = list({r["sensor_id"] for r in rows_to_write})
+                wx = repo.fetch_weather_now_for_sensors(sensor_ids=sensor_ids)
+                temp_map = {}
+                if wx is not None and not wx.empty:
+                    for _, r in wx.iterrows():
+                        t = r.get("temperature_c")
+                        if pd.notna(t):
+                            temp_map[str(r["sensor_id"])] = float(t)
+                for r in rows_to_write:
+                    sid = r["sensor_id"]
+                    if sid in temp_map:
+                        t = temp_map[sid]
+                        if WEATHER_JITTER_C > 0:
+                            t += random.uniform(-WEATHER_JITTER_C, WEATHER_JITTER_C)
+                        r["temperature_c"] = round(float(t), 1)
+            except Exception as e:
+                print("WARNING: weather fetch failed; using simulated temperatures", repr(e))
+
 
         if rows_to_write:
             try:
