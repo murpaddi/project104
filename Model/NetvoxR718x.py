@@ -126,7 +126,7 @@ class NetvoxR718x:
 
 
 
-    def attempt_empty_event(self, base_threshold: int = 85, empty_chance = 0.01) -> bool:
+    def attempt_empty_event(self, base_threshold: int = 85, empty_chance = 0.005) -> bool:
         if self.fill_level_percent >= base_threshold:
             overfill_factor = min((self.fill_level_percent - base_threshold) / 20, 1.0)
             prob = empty_chance + (overfill_factor * (1 - empty_chance))
