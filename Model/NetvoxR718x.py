@@ -66,9 +66,7 @@ class NetvoxR718x:
         return {
             "sensor_id": self.sensor_id,
             "timestamp": self.timestamp,
-            # "lat": self.lat,
-            #"lng": self.lng,
-            "fill_level_percent": round(self.fill_level_percent),
+            "fill_level_percent": int(round(self.fill_level_percent)),
             "temperature_c": round(self.temperature_c, 1),
             "battery_v": round(self.battery_v, 3),
             "fill_threshold": self.fill_threshold,
@@ -86,7 +84,7 @@ class NetvoxR718x:
 
 
     def simulate_changes(self, dt_minutes: int = 15):
-        base_rate_per_hour = 0.25 # Base fill rate per hour
+        base_rate_per_hour = 3.0 # Base fill rate per hour
         avg_fill_change_per_hour = base_rate_per_hour * self.fill_sentivity
         noise_per_hour = 0.1 # Random noise factor per hour
 
