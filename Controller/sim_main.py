@@ -8,11 +8,14 @@ from typing import List
 from Model.NetvoxR718x import NetvoxR718x
 from Model import repository as repo
 
+# === CONFIG ===
 SIM_COUNT = int(os.environ.get("SIM_COUNT", "6"))
 WRITE_INTERVAL_SECONDS = int(os.environ.get("WRITE_INTERVAL_SECONDS", "900"))
 SKIP_STARTUP_EMIT = os.environ.get("SKIP_STARTUP_EMIT", "1") == "1"
 MANAGE_STATIC = os.environ.get("MANAGE_STATIC", "0") == "1"
 HEARTBEAT_SECS = int(os.environ.get("HEARTBEAT_SECS", "3600"))
+REPORT_JITTER_SECONDS = int(os.envion.get("REPORT_JITTER_SECONDS", "0"))
+MIN_SLEEP_SECONDS = int(os.environ.get("MIN_SLEEP_SECONDS", "1"))
 
 LAT_MIN, LAT_MAX = -37.7942, -37.7923
 LNG_MIN, LNG_MAX = 144.8988, 144.9002
@@ -29,7 +32,8 @@ def _advance_sensor(s):
 
 def main():
     print(f"Booting simulators: SIM_COUNT={SIM_COUNT}, WRITE_INTERVAL_SECONDS={WRITE_INTERVAL_SECONDS}, "
-          f"MANAGE_STATIC={MANAGE_STATIC}, SKIP_STARTUP_EMIT={SKIP_STARTUP_EMIT}, HEARTBEAT_SECS={HEARTBEAT_SECS}")
+          f"MANAGE_STATIC={MANAGE_STATIC}, SKIP_STARTUP_EMIT={SKIP_STARTUP_EMIT}, HEARTBEAT_SECS={HEARTBEAT_SECS}, "
+          f"REPORT_JITTER_SECONDS={REPORT_JITTER_SECONDS}, MIN_SLEEP_SECONDS={MIN_SLEEP_SECONDS}")
     
     repo.ensure_archive_unique_index()
 
@@ -81,37 +85,63 @@ def main():
     else:
         print(f"Static sync skipped (MANAGE_STATIC=0).")
 
-        # === MAIN LOOP ===
+    #=== STAGGERED SCHEDULER ===
+    now_utc = pd.Timestamp.utcnow()
+    next_due = {}
+
+    for s in sensors:
+        sid = s.sensor_id
+        offset = random.randint(0, max(WRITE_INTERVAL_SECONDS - 1, 0))
+        due = now_utc + pd.Timedelta(seconds=offset)
+        if SKIP_STARTUP_EMIT:
+            due = due + pd.Timedelta(seconds=WRITE_INTERVAL_SECONDS)
+        next_due[sid] = due
+
+    # === MAIN LOOP ===
     first_cycle = True
     while True:
+        now = pd.Timestamp.utcnow()
         rows_to_write = []
+
         for s in sensors:
-            _advance_sensor(s)
+            sid = s.sensor_id
+            due = next_due[sid]
 
-            row = s.to_dict()
+            if now >= due:
+                _advance_sensor(s)
 
-            row["timestamp"] = pd.Timestamp.utcnow()
+                row = s.to_dict()
 
-            #Convert timestamp strings to datetime objects for DB write
-            for tcol in ("timestamp", "last_emptied", "last_overflow"):
-                if row.get(tcol) is not None:
-                    row[tcol] = pd.to_datetime(row[tcol], utc = True)
+                row["timestamp"] = pd.Timestamp.utcnow()
 
-            if SKIP_STARTUP_EMIT and first_cycle:
-                continue
+                #Convert timestamp strings to datetime objects for DB write
+                for tcol in ("timestamp", "last_emptied", "last_overflow"):
+                    if row.get(tcol) is not None:
+                        row[tcol] = pd.to_datetime(row[tcol], utc = True)
 
-            rows_to_write.append(row)
+                rows_to_write.append(row)
 
-        first_cycle = False
+                jitter = 0
+                if REPORT_JITTER_SECONDS > 0:
+                    max_jitter = min(REPORT_JITTER_SECONDS, max(WRITE_INTERVAL_SECONDS -1, 0))
+                    jitter = random.randint(-max_jitter, max_jitter)
+                next_due[sid] = due + pd.Timedelta(seconds=max(1, WRITE_INTERVAL_SECONDS + jitter))
 
         if rows_to_write:
-            repo.write_archive_rows(rows_to_write)
-
-            print(f"[{pd.Timestamp.now().strftime('%H:%M:%S')}] "
-                  f"Wrote {len(rows_to_write)} bin records to database")
+            try:
+                repo.write_archive_rows(rows_to_write)
+                ids = ", ".join(r["sensor_id"] for r in rows_to_write)
+                print(f"[{pd.Timestamp.now().strftime('%H:%M:%S')}] "
+                    f"Wrote {len(rows_to_write)} records -> {ids}")
+            except Exception as e:
+                print("ERROR writing archive rows:", repr(e))
         else:
             print(f"[{pd.Timestamp.now().strftime('%H:%M:%S')}] No rows written this cycle")
 
+        soonest = min(next_due.values()) if next_due else (now + pd.Timedelta(seconds=WRITE_INTERVAL_SECONDS))
+        wait_s = int((soonest - pd.Timestamp.utcnow()).total_seconds())
+        if wait_s < MIN_SLEEP_SECONDS:
+            wait_s = MIN_SLEEP_SECONDS
         time.sleep(WRITE_INTERVAL_SECONDS)            
 
 if __name__ == "__main__":
