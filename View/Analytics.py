@@ -78,18 +78,19 @@ def show_analytics():
     with col2:
         window = st.selectbox(
             "Time Window",
-            ["1 Minute (testing)", "15 Minutes (testing)", "Hourly", "6 Hours", "12 Hours", "24 Hours", "7 Days"],
-            index = 1,
+            ["15 Minutes (testing)", "30 Minutes (testing)", "Hourly", "6 Hours", "12 Hours", "24 Hours", "48 Hours", "7 Days"],
+            index = 3,
             key=f"{key_prefix}window_select"
             )
 
         WINDOWS = {
-            "1 Minute (testing)": timedelta(minutes=1),
             "15 Minutes (testing)": timedelta(minutes=15),
+            "30 Minutes (testing)": timedelta(minutes=30),
             "Hourly": timedelta(hours=1),
             "6 Hours": timedelta(hours=6),
             "12 Hours": timedelta(hours=12),
             "24 Hours": timedelta(hours=24),
+            "48 Hours": timedelta(hours=48),
             "7 Days": timedelta(days=7)
             }
 
