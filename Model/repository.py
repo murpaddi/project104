@@ -16,6 +16,8 @@ truncate_static() - truncates static bin table data.
 
 from __future__ import annotations
 import os
+import time
+import requests
 import pandas as pd
 from sqlalchemy import create_engine, text
 from typing import Iterable, Mapping, Sequence, Optional
@@ -267,3 +269,76 @@ def reset_tables(*, preserve_archive: bool = True, preserve_static: bool = True)
             conn.exec_driver_sql("TRUNCATE smartbins.archive_bin_data RESTART IDENTITY;")
         if not preserve_static:
             conn.exec_driver_sql("TRUNCATE smartbins.static_bin_data;")
+
+
+# === WEATHER API ===
+_OPEN_METEO_URL = "https://api.open-meteo.com/v1/forecast"
+_WEATHER_CACHE_TTL_SEC = 600
+_weather_cache: dict[tuple, tuple[float, object]] = {}
+
+def _cache_get(key: tuple):
+    now = time.time()
+    hit = _weather_cache.get(key)
+    if not hit:
+        return None
+    ts, value = hit
+    if (now - ts) > _WEATHER_CACHE_TTL_SEC:
+        _weather_cache.pop(key, None)
+        return None
+    return value
+
+def _cache_put(key: tuple, value: object):
+    _weather_cache[key] = (time.time(), value)
+    return value
+
+
+def fetch_weather_now_by_coords(lat: float, lng: float) -> dict:
+    key = (round(lat, 4), round(lng, 4), "now", None, None)
+    hit = _cache_get(key)
+    if hit:
+        return hit
+    
+    params = {
+        "latitude": lat,
+        "longitude": lng,
+        "current": "temperature_2m",
+        "timezone": "UTC"
+    }
+    r = requests.get(_OPEN_METEO_URL, params=params, timeout = 10)
+    r.raise_for_status()
+    data = r.json()
+    cur = data.get("current", {}) or {}
+    temp = cur.get("temperature_2m")
+    tm = pd.to_datetime(cur.get("time"), utc=True)
+    return _cache_put(key, {"temperature_c": (float(temp) if temp is not None else None), "time_utc": tm})
+
+def fetch_weather_now_for_sensors(sensor_ids: list[str] | None = None) -> pd.DataFrame:
+    """
+    For each of the bins in the static bin table, fetch the weather for the coordinates of that bin.
+    Returns DataFrame: ["sensor_id", 'temperature_c", "wx_time_utc"]
+    """
+
+    static_df = fetch_static_bins_df()
+    if static_df.empty:
+        return pd.DataFrame(columns=["sensor_id", "temperature_c", "wx_time_utc"])
+    
+    if sensor_ids is not None:
+        static_df = static_df[static_df["sensor_id"].isin(sensor_ids)]
+
+    if static_df.empty:
+        return pd.DataFrame(columns=["sensor_id", "temperature_c", "wx_time_utc"])
+    
+    coords = static_df[["sensor_id", "lat", "lng"]].dropna()
+    uniq = coords[["lat", "lng"]].drop_duplicates()
+
+    #One HTTP call per unique coordinate
+    wx_rows = []
+    for _, rr in uniq.iterrows():
+        w = fetch_weather_now_by_coords(float(rr["lat"]), float(rr["lng"]))
+        wx_rows.append({"lat": rr["lat"], "lng": rr["lng"],
+                        "temperature_c": w["temperature_c"], "wx_time_utc": w["time_utc"]})
+        
+    wx = pd.DataFrame(wx_rows)
+
+    out = coords.merge(wx, on=["lat", "lng"], how="left")[["sensor_id", "temperature_c", "wx_time_utc"]]
+    return out
