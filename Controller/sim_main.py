@@ -98,7 +98,6 @@ def main():
         next_due[sid] = due
 
     # === MAIN LOOP ===
-    first_cycle = True
     while True:
         now = pd.Timestamp.utcnow()
         rows_to_write = []
@@ -142,7 +141,7 @@ def main():
         wait_s = int((soonest - pd.Timestamp.utcnow()).total_seconds())
         if wait_s < MIN_SLEEP_SECONDS:
             wait_s = MIN_SLEEP_SECONDS
-        time.sleep(WRITE_INTERVAL_SECONDS)            
+        time.sleep(wait_s)         
 
 if __name__ == "__main__":
     main()
