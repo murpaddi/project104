@@ -146,15 +146,6 @@ def main():
                 print(f"[{pd.Timestamp.now().strftime('%H:%M:%S')}] {sid}: dt={dt_min}m "
                     f"fill {before_fill:.1f} -> {after_fill:.1f} "
                     f"(ts {before_ts} -> {after_ts})")
-                
-                if abs(after_fill - before_fill) < 1e-6:
-                # fallback deltas; tune via env if you wish
-                    FMIN = float(os.environ.get("FALLBACK_FILL_MIN_DELTA", "0.3"))
-                    FMAX = float(os.environ.get("FALLBACK_FILL_MAX_DELTA", "1.2"))
-                    nudge = random.uniform(FMIN, FMAX)
-                    after_fill = min(100.0, before_fill + nudge)
-                    setattr(s, "fill_level_percent", after_fill)
-                    print(f"[{pd.Timestamp.now().strftime('%H:%M:%S')}] {sid}: fallback nudge +{nudge:.2f} -> {after_fill:.1f}")
 
                 row = s.to_dict()
 
