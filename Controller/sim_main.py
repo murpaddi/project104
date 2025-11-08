@@ -134,7 +134,7 @@ def main():
                     dt_min = max(1, int((pd.Timestamp.utcnow() - last_ts).total_seconds() // 60))
 
                 #Diagnostics
-                before_fill = int(getattr(s, "fill_level_percent", 0.0))
+                before_fill = int(getattr(s, "fill_level_percent", 0))
                 before_ts = getattr(s, "timestamp", None)
 
                 _advance_sensor(s, dt_minutes=dt_min)
