@@ -17,6 +17,13 @@ HEARTBEAT_SECS = int(os.environ.get("HEARTBEAT_SECS", "3600"))
 LAT_MIN, LAT_MAX = -37.7942, -37.7923
 LNG_MIN, LNG_MAX = 144.8988, 144.9002
 
+# === HELPER ===
+def _advance_sensor(s):
+    for m in ("step", "tick", "advance", "simulate_step", "simulate", "update"):
+        if hasattr(s, m):
+            getattr(s, m)()
+            return
+
 # === MAIN ===
 
 def main():
@@ -78,7 +85,7 @@ def main():
     while True:
         rows_to_write = []
         for s in sensors:
-            s.step()
+            _advance_sensor(s)
 
             row = s.to_dict()
 
