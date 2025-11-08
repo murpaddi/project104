@@ -75,7 +75,7 @@ def main():
         if not last_idx.empty and sensor_id in last_idx.index:
             row = last_idx.loc[sensor_id]
             #Continue from database values, not random values
-            start_fill = float(row.get("fill_level_percent", start_fill))
+            start_fill = int(row.get("fill_level_percent", start_fill))
             start_temp = float(row.get("temperature_c", start_temp))
             start_batt = float(row.get("battery_v", start_batt))
             fill_thresh = int(row.get("fill_threshold", fill_thresh))
@@ -134,13 +134,13 @@ def main():
                     dt_min = max(1, int((pd.Timestamp.utcnow() - last_ts).total_seconds() // 60))
 
                 #Diagnostics
-                before_fill = float(getattr(s, "fill_level_percent", 0.0))
+                before_fill = int(getattr(s, "fill_level_percent", 0.0))
                 before_ts = getattr(s, "timestamp", None)
 
                 _advance_sensor(s, dt_minutes=dt_min)
 
                 #Diagnositics
-                after_fill = float(getattr(s, "fill_level_percent", before_fill))
+                after_fill = int(getattr(s, "fill_level_percent", before_fill))
                 after_ts = getattr(s, "timestamp", None)
 
                 print(f"[{pd.Timestamp.now().strftime('%H:%M:%S')}] {sid}: dt={dt_min}m "
