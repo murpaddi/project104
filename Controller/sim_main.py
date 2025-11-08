@@ -104,6 +104,11 @@ def main():
         if rows_to_write:
             repo.write_archive_rows(rows_to_write)
 
+            print(f"[{pd.Timestamp.now().strftime('%H:%M:%S')}] "
+                  f"Wrote {len(rows_to_write)} bin records to database")
+        else:
+            print(f"[{pd.Timestamp.now().strftime('%H:%M:%S')}] No rows written this cycle")
+
         time.sleep(WRITE_INTERVAL_SECONDS)            
 
 if __name__ == "__main__":
