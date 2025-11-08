@@ -133,7 +133,28 @@ def main():
                     last_ts = pd.to_datetime(last_ts, utc=True)
                     dt_min = max(1, int((pd.Timestamp.utcnow() - last_ts).total_seconds() // 60))
 
+                #Diagnostics
+                before_fill = float(getattr(s, "fill_level_percent", 0.0))
+                before_ts = getattr(s, "timestamp", None)
+
                 _advance_sensor(s, dt_minutes=dt_min)
+
+                #Diagnositics
+                after_fill = float(getattr(s, "fill_level_percent", before_fill))
+                after_ts = getattr(s, "timestamp", None)
+
+                print(f"[{pd.Timestamp.now().strftime('%H:%M:%S')}] {sid}: dt={dt_min}m "
+                    f"fill {before_fill:.1f} -> {after_fill:.1f} "
+                    f"(ts {before_ts} -> {after_ts})")
+                
+                if abs(after_fill - before_fill) < 1e-6:
+                # fallback deltas; tune via env if you wish
+                    FMIN = float(os.environ.get("FALLBACK_FILL_MIN_DELTA", "0.3"))
+                    FMAX = float(os.environ.get("FALLBACK_FILL_MAX_DELTA", "1.2"))
+                    nudge = random.uniform(FMIN, FMAX)
+                    after_fill = min(100.0, before_fill + nudge)
+                    setattr(s, "fill_level_percent", after_fill)
+                    print(f"[{pd.Timestamp.now().strftime('%H:%M:%S')}] {sid}: fallback nudge +{nudge:.2f} -> {after_fill:.1f}")
 
                 row = s.to_dict()
 
