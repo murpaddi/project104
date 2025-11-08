@@ -39,7 +39,7 @@ def show_analytics():
             title = "Distribution of Bin Fill Levels (%)"
         )
         fig_hist.update_layout(xaxis_title="Fill Level (%)", yaxis_title="Count of Bins", bargap=0.15)
-        st.plotly_chart(fig_hist, use_container_width=True)
+        st.plotly_chart(fig_hist, width="stretch")
 
 
 
@@ -64,7 +64,7 @@ def show_analytics():
             hole=0.15,
             title="Proportion of Bins by Fill Range"
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
     
     st.divider()
 
@@ -125,7 +125,7 @@ def show_analytics():
                     if start_time is not None:
                         kw["xaxis_range"] = [start_time, now]
                     fig_fill.update_layout(**kw)
-                    st.plotly_chart(fig_fill, use_container_width=True)              
+                    st.plotly_chart(fig_fill, width="stretch")              
             
                 with c2:
                     st.subheader("Temperature Over Time")
@@ -137,7 +137,7 @@ def show_analytics():
                     if start_time is not None:
                         kw["xaxis_range"] = [start_time, now]
                     fig_temp.update_layout(**kw)
-                    st.plotly_chart(fig_temp, use_container_width=True)
+                    st.plotly_chart(fig_temp, width="stretch")
                 
                 if log_window.empty:
                     st.info(f"No data in the selected window ({window})")

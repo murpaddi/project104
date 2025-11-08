@@ -2,13 +2,28 @@ import streamlit as st
 import pydeck as pdk
 import pandas as pd
 from io import BytesIO
-from pathlib import Path
-from Model.data_loader import load_live_with_coords
+from Model.data_loader import load_live_with_coords, load_archive_with_coords as _load_archive_with_coords
+from Model import repository as repo
 import time
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
+
+MEL = ZoneInfo("Australia/Melbourne")
+
+def _to_utc(dt):
+    if dt is None:
+        return None
+    if getattr(dt, "tzinfo", None) is None:
+        dt = dt.replace(tzinfo=MEL)
+    return dt.astimezone(timezone.utc)
 
 def double_column():
     column1, _, column2= st.columns([1, .05, 1])
     return column1,column2
+
+def triple_column():
+    column1, column2, column3 = st.columns([1, 1, 1])
+    return column1, column2, column3
 
 def two_to_one():
     column1, _, column2 = st.columns([2, 0.05, 1])
@@ -77,11 +92,11 @@ def load_map(data: pd.DataFrame) -> pdk.Deck:
             tooltip=tooltip
         )
 
-def render_table(df: pd.DataFrame, *, use_container_width=True, height=300):
+def render_table(df: pd.DataFrame, *, width="stretch", height=300):
     if df is None or df.empty:
         st.info("No data available.")
         return
-    st.dataframe(df, use_container_width=use_container_width, height=height)
+    st.dataframe(df, width=width, height=height)
 
 def get_latest_df(show_errors: bool = True) -> pd.DataFrame:
     try:
@@ -123,13 +138,6 @@ def prep_map_data(df: pd.DataFrame) -> pd.DataFrame:
         map_df = map_df.rename(columns={"Latitude": "Lat", "Longitude":"Lng"})
     return map_df
 
-
-def df_to_excel_bytes(df: pd.DataFrame) -> bytes:
-    """Return a bytes payload for an Excel download from a DataFrame."""
-    output = BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df.to_excel(writer, index=False, sheet_name='Sheet1')
-    return output.getvalue()
 
 def download_button_from_df(df: pd.DataFrame, filename: str, label: str, *, key: str | None = None):
     """Render a standard download button for a DataFrame as Excel."""
@@ -213,6 +221,32 @@ def filter_urgent(df, *, fill_thresh=85, temp_thresh=40, battery_thresh=3.2):
 def _cached_load():
     return load_live_with_coords()
 
+def get_archive_with_coords_df(device_id: str | None, *, since, until, limit: int | None = None) -> pd.DataFrame:
+    try:
+        since_utc = _to_utc(since)
+        until_utc = _to_utc(until)
+
+        if device_id:
+            return _load_archive_with_coords(
+                device_id,
+                since=_to_utc(since),
+                until=_to_utc(until),
+                limit=limit,
+                with_coords=True,
+            )
+        
+        raw = repo.fetch_archive_df(since=since_utc, until=until_utc, limit=limit)
+        if raw.empty:
+            return raw
+        
+        static = repo.fetch_static_bins_df()
+        merged = raw.merge(static, how="left", on="sensor_id")
+        return merged
+
+    except Exception as e:
+        st.error(f"Error loading merged archive data: {e}")
+        return pd.DataFrame()
+
 def refresh_button(label: str = "Refresh Now", key: str | None = None) -> bool:
     with st.sidebar:
         return st.button(label, key=key)
@@ -236,3 +270,58 @@ def maybe_autorefresh(enabled: bool, interval_sec: int):
         st.rerun()
     except Exception as e:
         st.warning(f"Auto-refresh skipped: {e}")
+
+def get_bin_archive_df(sensor_id: str, *, days:int = 1) -> pd.DataFrame:
+    since = datetime.now() - timedelta(days=days)
+    until = datetime.now()
+
+    try:
+        df = repo.fetch_archive_df(
+            since=since,
+            until=until,
+            sensor_ids=[sensor_id],
+        )
+        return df if not df.empty else pd.DataFrame()
+    except Exception as e:
+        st.error(f"Error loading archive data: {e}")
+        return pd.DataFrame()
+    
+def prepare_download(df: pd.DataFrame, fmt: str) -> tuple[bytes, str, str]:
+    import io
+    fmt = fmt.upper()
+
+    data, mime, ext = b"", "text/plain", "txt"
+
+    if fmt == "CSV":
+        data = df.to_csv(index=False).encode("utf-8")
+        mime, ext = "text/csv", "csv"
+    
+    elif fmt == "JSON":
+        data = df.to_json(orient="records", indent=2).encode("utf-8")
+        mime, ext = "application/json", "json"
+
+    elif fmt == "PARQUET":
+        import io
+        buf = io.BytesIO()
+        df.to_parquet(buf, index=False)
+        data = buf.getvalue()
+        mime, ext = "application/octet-stream", "parquet"
+
+    elif fmt == "HTML":
+        html = df.to_html(index=False)
+        data = html.encode("utf-8")
+        mime, ext = "text/html", "html"
+
+    elif fmt == "XML":
+        xml = df.to_xml(index=False)
+        data = xml.encode("utf-8")
+        mime, ext = "application/xml", "xml"
+
+    elif fmt == "FEATHER":
+        import io
+        buf = io.BytesIO()
+        df.to_feather(buf)
+        data = buf.getvalue()
+        mime, ext = "application/octet-stream", "feather"
+
+    return data, mime, ext

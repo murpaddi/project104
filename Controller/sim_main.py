@@ -25,7 +25,20 @@ WEATHER_JITTER_C = float(os.environ.get("WEATHER_JITTER_C", "0.0"))
 
 # === HELPER ===
 
-def _advance_sensor(s):
+def _advance_sensor(s, dt_minutes: int | None = None):
+    if hasattr(s, "simulate_changes"):
+        s.simulate_changes(dt_minutes=dt_minutes or 15)
+        if hasattr(s, "attempt_empty_event"):
+            try:
+                s.attempt_empty_event(base_threshold=getattr(s, "fill_threshold", 85), empty_chance=0.005)
+            except Exception:
+                pass
+        if hasattr(s, "update_temperature"):
+            try:
+                s.update_temperature()
+            except Exception:
+                pass
+        return
     for m in ("step", "tick", "advance", "simulate_step", "simulate", "update"):
         if hasattr(s, m):
             getattr(s, m)()
@@ -113,7 +126,14 @@ def main():
             due = next_due[sid]
 
             if now >= due:
-                _advance_sensor(s)
+                last_ts = getattr(s, "timestamp", None)
+                if last_ts is None:
+                    dt_min = max(1, WRITE_INTERVAL_SECONDS // 60)
+                else:
+                    last_ts = pd.to_datetime(last_ts, utc=True)
+                    dt_min = max(1, int((pd.Timestamp.utcnow() - last_ts).total_seconds() // 60))
+
+                _advance_sensor(s, dt_minutes=dt_min)
 
                 row = s.to_dict()
 
