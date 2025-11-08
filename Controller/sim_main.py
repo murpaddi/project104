@@ -90,6 +90,8 @@ def main():
 
             row = s.to_dict()
 
+            row["timestamp"] = pd.Timestamp.utcnow()
+
             #Convert timestamp strings to datetime objects for DB write
             for tcol in ("timestamp", "last_emptied", "last_overflow"):
                 if row.get(tcol) is not None:
