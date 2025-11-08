@@ -19,36 +19,48 @@ import os
 import pandas as pd
 from sqlalchemy import create_engine, text
 from typing import Iterable, Mapping, Sequence, Optional
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
-DB_URL = os.environ.get("DATABASE_URL")
-if not DB_URL:
-    raise RuntimeError("Set DATABASE_URL env variable before running.")
 
 _schema = "smartbins"
 _archive = f"{_schema}.archive_bin_data"
 _static = f"{_schema}.static_bin_data"
 
+# === DATABASE CONNECTION ===
+DB_URL = os.environ.get("DATABASE_URL")
+if not DB_URL:
+    raise RuntimeError("Set DATABASE_URL env variable before running.")
 
 _engine = None
+
 def engine():
     global _engine
     if _engine is None:
         _engine = create_engine(DB_URL, pool_pre_ping=True)
     return _engine
 
+
 # === WRITE HELPERS ===
 def write_archive_rows(rows: Iterable[Mapping]):
     df = pd.DataFrame(list(rows))
     if df.empty:
         return
-    df.to_sql(
-        "archive_bin_data",
-        engine(),
-        schema=_schema,
-        if_exists="append",
-        index=False
-    )
+    
+    cols = [
+        "sensor_id", "timestamp", "fill_level_percent", "temperature_c",
+        "battery_v", "fill_threshold", "last_emptied", "overflow",
+        "overflow_count", "last_overflow"
+    ]
+    df = df.reindex(columns=cols)
+
+    sql = f"""
+        INSERT INTO {_archive} ({", ".join(cols)})
+        VALUES ({", ".join([f":{c}" for c in cols])})
+        ON CONFLICT (sensor_id, "timestamp") DO NOTHING;
+    """
+
+    with engine().begin() as conn:
+        conn.execute(text(sql), df.to_dict(orient="records"))
 
 def upsert_static_bins(df_coords: pd.DataFrame):
     df = df_coords[["bin_id", "sensor_id", "lat", "lng"]].copy()
@@ -136,15 +148,28 @@ def fetch_archive_df(
         return pd.read_sql_query(text(sql), conn, params=params)
     
 
-def fetch_latest_snapshot_df() -> pd.DataFrame:
+def fetch_any_latest_snapshot_df() -> pd.DataFrame:
+    """
+    Latest row per sensor id with NO time window
+    """
+    sql = f"""
+        SELECT DISTINCT ON (sensor_id) *
+        FROM {_archive}
+        ORDER BY sensor_id, "timestamp" DESC;
+    """
+    with engine().begin() as conn:
+        return pd.read_sql_query(text(sql), conn)
+
+def fetch_latest_snapshot_df(within_seconds: int = 3600) -> pd.DataFrame:
     """
     Fetches the latest record for each bin_id.
     """
 
     sql = f"""
-        SELECT DISTINCT ON (sensor_id) *
-        FROM {_archive}
-        ORDER BY sensor_id, timestamp DESC;
+        SELECT DISTINCT ON (a.sensor_id) a.*
+        FROM {_archive} a
+        WHERE a."timestamp" >= (NOW() AT TIME ZONE 'utc') - INTERVAL '{within_seconds} seconds'
+        ORDER BY a.sensor_id, a.timestamp DESC;
     """
     with engine().begin() as conn:
         df = pd.read_sql_query(text(sql), conn)
@@ -161,6 +186,57 @@ def fetch_static_bins_df() -> pd.DataFrame:
     return df
     
 # === ADMIN HELPERS ===
+
+def sync_static_bins(df_coords: pd.DataFrame, *, delete_missing: bool = False, update_existing: bool = False):
+    """
+    Synchronize static bins with the provided df (bin_id, sensor_id, lat, lng).
+    - Inserts new
+    - Optionally updates existing coords
+    - Optionally deletes static rows not present in df
+    """
+    if df_coords.empty:
+        return
+    
+    df = df_coords[["bin_id", "sensor_id", "lat", "lng"]].copy()
+
+    eng = engine()
+    with eng.begin() as conn:
+        conn.exec_driver_sql(f"CREATE TEMP TABLE tmp_bins (LIKE {_static} INCLUDING ALL);")
+        df.to_sql("tmp_bins", conn, if_exists="append", index=False)
+
+        conn.exec_driver_sql(f"""
+            INSERT INTO {_static} (bin_id, sensor_id, lat, lng)
+            SELECT t.bin_id, t.sensor_id, t.lat, t.lng
+            FROM tmp_bins t
+            LEFT JOIN {_static} s ON s.bin_id = t.bin_id
+            WHERE s.bin_id IS NULL;
+        """)
+
+        if update_existing:
+            conn.exec_driver_sql(f"""
+                UPDATE {_static} s
+                SET sensor_id = t.sensor_id, lat = t.lat, lng = t.lng
+                FROM tmp_bins t
+                WHERE s.bin_id = t.bin_id;
+        """)
+            
+        if delete_missing:
+            conn.exec_driver_sql(f"""
+                DELETE FROM {_static} s
+                WHERE NOT EXISTS (SELECT 1 FROM tmp_bins t WHERE t.bin_id = s.bin_id);
+        """)
+        
+        conn.exec_driver_sql("DROP TABLE tmp_bins;")
+
+def ensure_archive_unique_index():
+    sql = f"""
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_archive_sid_ts
+    ON {_archive} (sensor_id, "timestamp");
+    """
+    with engine().begin() as conn:
+        conn.exec_driver_sql(sql)
+
+
 #Make defunct at later time
 def truncate_archive(*, restart_identity: bool = True):
     clause = "RESTART IDENTITY" if restart_identity else ""

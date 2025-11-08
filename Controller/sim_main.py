@@ -1,149 +1,103 @@
 import time
 import random
-from pathlib import Path
+import os
 import pandas as pd
 from datetime import datetime, timezone
+from typing import List
 
 from Model.NetvoxR718x import NetvoxR718x
 from Model import repository as repo
 
-INTERVAL_MINUTES = 15
-WRITE_INTERVAL_SECONDS = 900 #Change for accelerated testing
-POLL_SECONDS = 5
+SIM_COUNT = int(os.environ.get("SIM_COUNT", "6"))
+WRITE_INTERVAL_SECONDS = int(os.environ.get("WRITE_INTERVAL_SECONDS", "900"))
+SKIP_STARTUP_EMIT = os.environ.get("SKIP_STARTUP_EMIT", "1") == "1"
+MANAGE_STATIC = os.environ.get("MANAGE_STATIC", "0") == "1"
+HEARTBEAT_SECS = int(os.environ.get("HEARTBEAT_SECS", "3600"))
 
-#SET UP DATA DIRECTORIES FOR LOCAL CSV LOGGING (MAKE DEFUNCT LATER)
-BASE_DIR = Path(__file__).resolve().parent.parent / "Model"
-DATA_DIR = BASE_DIR / "Data"
-LOGS_DIR = DATA_DIR / "Logs"
+LAT_MIN, LAT_MAX = -37.7942, -37.7923
+LNG_MIN, LNG_MAX = 144.8988, 144.9002
 
-MASTER_CSV = DATA_DIR / "master_sensor_data.csv"
-COORDS_CSV = DATA_DIR / "coordinates.csv"
-
-RESET_MASTER = True #Set to True to reset master CSV on each run
-RESET_DB = False #Set to True to reset DB on each run
-
-WRITE_LOCAL_CSV = False
-
-if WRITE_LOCAL_CSV:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    LOGS_DIR.mkdir(parents=True, exist_ok=True)
-
-    if RESET_MASTER and MASTER_CSV.exists():
-        MASTER_CSV.unlink()
-    if COORDS_CSV.exists():
-        COORDS_CSV.unlink()
-
+# === MAIN ===
 
 def main():
-    print("Starting smart bin data simulation...")
-    if RESET_DB:
-        repo.reset_tables(preserve_archive=True, preserve_static=True) #Change to False to keep static data
-        print("Database reset completed.")
-    sensors = []
+    print(f"Booting simulators: SIM_COUNT={SIM_COUNT}, WRITE_INTERVAL_SECONDS={WRITE_INTERVAL_SECONDS}, "
+          f"MANAGE_STATIC={MANAGE_STATIC}, SKIP_STARTUP_EMIT={SKIP_STARTUP_EMIT}, HEARTBEAT_SECS={HEARTBEAT_SECS}")
+    
+    repo.ensure_archive_unique_index()
+
+    last = repo.fetch_any_latest_snapshot_df()
+    last_idx = last.set_index("sensor_id") if not last.empty else pd.DataFrame()
+
+    sensors: List[NetvoxR718x] = []
     coords_rows = []
-    for i in range (1, 7):
+
+    for i in range (1, SIM_COUNT + 1):
         sensor_id = f"R718X-{i:03d}"
         bin_id = f"BIN-{i:03d}"
-        lat = random.uniform(-37.7923, -37.7942)
-        lng = random.uniform(144.8988, 144.9002)
+
+        #Defaults for first run
+        start_fill = random.randint(5, 60)
+        start_temp = random.uniform(16.0, 24.0)
+        start_batt = 3.6
+        fill_thresh = 85
+
+        if not last_idx.empty and sensor_id in last_idx.index:
+            row = last_idx.loc[sensor_id]
+            #Continue from database values, not random values
+            start_fill = float(row.get("fill_level_percent", start_fill))
+            start_temp = float(row.get("temperature_c", start_temp))
+            start_batt = float(row.get("battery_v", start_batt))
+            fill_thresh = int(row.get("fill_threshold", fill_thresh))
+
         sensors.append(NetvoxR718x(
             sensor_id=sensor_id,
-            fill_level_percent=random.randint(1, 100), # tweak starting fill level for testing
-            temperature_c=random.uniform(15.0, 25.0), # tweak starting temp for testing
-            battery_v=3.6,
-            fill_threshold=85,
-            #lat=random.uniform(-37.8136, -37.7000),
-            #lng=random.uniform(144.9631, 145.2000),
+            fill_level_percent=start_fill,
+            temperature_c=start_temp,
+            battery_v=start_batt,
+            fill_threshold=fill_thresh,
             enable_traffic = True,
             fill_sentivity = random.randint(1, 5)
         ))
 
-        coords_rows.append({"bin_id": bin_id, "sensor_id": sensor_id, "lat": lat, "lng": lng})
-    
-    # pd.DataFrame(coords_rows).to_csv(COORDS_CSV, index=False) #Remove eventually, keeping for testing/debugging
-    # print(f"Coordinates saved to {COORDS_CSV}")
+        coords_rows.append({
+            "bin_id": bin_id,
+            "sensor_id": sensor_id,
+            "lat": random.uniform(LAT_MIN, LAT_MAX),
+            "lng": random.uniform(LNG_MIN, LNG_MAX)
+        })
 
-    repo.upsert_static_bins(pd.DataFrame(coords_rows)) #Inserts rows to supabase.
-    print("Static bin coordinates upserted to Supabase.")
+    if MANAGE_STATIC:
+        df_coords = pd.DataFrame(coords_rows)
+        repo.sync_static_bins(df_coords, delete_missing=True, update_existing=False)
+        print(f"Static sync complete for {SIM_COUNT} bins.")
+    else:
+        print(f"Static sync skipped (MANAGE_STATIC=0).")
 
-    csv_paths = {}
-    for s in sensors:
-        per_sensor_csv = LOGS_DIR / f"{s.sensor_id}_data_log.csv"
-        if per_sensor_csv.exists():
-            per_sensor_csv.unlink()
-        csv_paths[s.sensor_id] = per_sensor_csv
+        # === MAIN LOOP ===
+    first_cycle = True
+    while True:
+        rows_to_write = []
+        for s in sensors:
+            s.step()
 
-    header_needed_per_sensor = {s.sensor_id: True for s in sensors}
-    master_header_needed = not MASTER_CSV.exists()
+            row = s.to_dict()
 
-    #Random offset to stagger writes
-    next_write_time = {
-        s.sensor_id: time.time() + random.uniform(0, WRITE_INTERVAL_SECONDS)
-        for s in sensors
-    }
+            #Convert timestamp strings to datetime objects for DB write
+            for tcol in ("timestamp", "last_emptied", "last_overflow"):
+                if row.get(tcol) is not None:
+                    row[tcol] = pd.to_datetime(row[tcol], utc = True)
 
-    try:
-        while True:
-            now = time.time()
-            rows_to_write = []
-            for s in sensors:
-                due = now >= next_write_time[s.sensor_id]
-                if not due:
-                    continue
-                s.simulate_changes(dt_minutes=INTERVAL_MINUTES)
-                s.update_temperature()
-                s.attempt_empty_event()
+            if SKIP_STARTUP_EMIT and first_cycle:
+                continue
 
-                #Ensures timestamp is a datetime object in current UTC time.
-                #Failsafe if class timestamp not updated correctly.
-                s.timestamp = datetime.now(timezone.utc)
+            rows_to_write.append(row)
 
-                #Build row for database
-                row = s.to_dict()
+        first_cycle = False
 
-                #Convert timestamp strings to datetime objects for DB write
-                for tcol in ("timestamp", "last_emptied", "last_overflow"):
-                    if row.get(tcol) is not None:
-                        row[tcol] = pd.to_datetime(row[tcol], utc = True)
+        if rows_to_write:
+            repo.write_archive_rows(rows_to_write)
 
-                rows_to_write.append(row)
-
-                df_one = pd.DataFrame([row])
-                print(f"[{s.sensor_id}] {df_one.to_string(index=False, header = False)}")
-
-                if WRITE_LOCAL_CSV:
-                    #Append to sensor specific CSV
-                    df_one.to_csv(
-                        csv_paths[s.sensor_id], 
-                        mode='a', 
-                        header=header_needed_per_sensor[s.sensor_id], 
-                        index=False
-                    )
-                    header_needed_per_sensor[s.sensor_id] = False
-
-                    #Append to master CSV
-                    df_one.to_csv(
-                        MASTER_CSV, 
-                        mode='a', 
-                        header=master_header_needed, 
-                        index=False
-                    )
-                    master_header_needed = False
-
-                next_write_time[s.sensor_id] = now + random.uniform(1, WRITE_INTERVAL_SECONDS)         
-                
-            if rows_to_write:    
-                try:
-                    repo.write_archive_rows(rows_to_write)
-                    print(f"[DB WRITE OK] wrote {len(rows_to_write)} rows to archive at {datetime.now(timezone.utc).isoformat()}")
-                except Exception as e:
-                    print(f"[DB WRITE ERROR] {e}")
-
-
-            time.sleep(POLL_SECONDS)
-
-    except KeyboardInterrupt:
-        print("\nStream stopped.")
+        time.sleep(WRITE_INTERVAL_SECONDS)            
 
 if __name__ == "__main__":
     main()
