@@ -8,7 +8,7 @@ from typing import Optional
 class NetvoxR718x:
     def __init__(self, 
                  sensor_id: str, 
-                 fill_level_percent: int = 0,
+                 fill_level_percent: float = 0.0,
                  temperature_c: float = 22.0,
                  battery_v: float = 3.6,
                  fill_threshold: int = 85,
@@ -28,7 +28,7 @@ class NetvoxR718x:
                  **kwargs):
         
         self.sensor_id = sensor_id
-        self.fill_level_percent = int(fill_level_percent)
+        self.fill_level_percent = float(fill_level_percent)
         self.temperature_c = float(temperature_c)
         self.battery_v = float(battery_v)
         self.fill_threshold = int(fill_threshold)
@@ -66,7 +66,7 @@ class NetvoxR718x:
         return {
             "sensor_id": self.sensor_id,
             "timestamp": self.timestamp,
-            "fill_level_percent": int(round(self.fill_level_percent)),
+            "fill_level_percent": round(self.fill_level_percent, 0),
             "temperature_c": round(self.temperature_c, 1),
             "battery_v": round(self.battery_v, 3),
             "fill_threshold": self.fill_threshold,
@@ -84,7 +84,7 @@ class NetvoxR718x:
 
 
     def simulate_changes(self, dt_minutes: int = 15):
-        base_rate_per_hour = 3.0 # Base fill rate per hour
+        base_rate_per_hour = 4.0 # Base fill rate per hour
         avg_fill_change_per_hour = base_rate_per_hour * self.fill_sentivity
         noise_per_hour = 0.1 # Random noise factor per hour
 
