@@ -14,7 +14,7 @@ WRITE_INTERVAL_SECONDS = int(os.environ.get("WRITE_INTERVAL_SECONDS", "900"))
 SKIP_STARTUP_EMIT = os.environ.get("SKIP_STARTUP_EMIT", "1") == "1"
 MANAGE_STATIC = os.environ.get("MANAGE_STATIC", "0") == "1"
 HEARTBEAT_SECS = int(os.environ.get("HEARTBEAT_SECS", "3600"))
-REPORT_JITTER_SECONDS = int(os.envion.get("REPORT_JITTER_SECONDS", "0"))
+REPORT_JITTER_SECONDS = int(os.environ.get("REPORT_JITTER_SECONDS", "0"))
 MIN_SLEEP_SECONDS = int(os.environ.get("MIN_SLEEP_SECONDS", "1"))
 
 LAT_MIN, LAT_MAX = -37.7942, -37.7923
