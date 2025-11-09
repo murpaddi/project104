@@ -92,6 +92,13 @@ def load_map(data: pd.DataFrame) -> pdk.Deck:
             tooltip=tooltip
         )
 
+def ensure_columns(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
+    out = df.copy()
+    for c in cols:
+        if c not in out.columns:
+            out[c] = pd.NA
+    return out
+
 def render_table(df: pd.DataFrame, *, width="stretch", height=300):
     if df is None or df.empty:
         st.info("No data available.")
@@ -123,10 +130,6 @@ def load_bin_log(device_id: str) -> pd.DataFrame:
             if c not in df.columns:
                 df[c] = pd.NA
         return df[need + [c for c in df.columns if c not in need]]
-    except Exception:
-        return pd.DataFrame()
-
-
     except Exception:
         return pd.DataFrame()
     

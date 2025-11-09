@@ -47,10 +47,18 @@ def show_dashboard():
             ]
 
             display_df = df.copy()
-            fmt = "%d %b %Y, %#I:%M %p"
-            for col in ("Timestamp", "Last Emptied", "Last Overflow"):
-                if col in display_df.columns:
-                    display_df[col] = pd.to_datetime(display_df[col]).dt.strftime(fmt)
+            display_df = util.ensure_columns(display_df, summary_cols)
+
+            fmt = "%d %b %Y, %-I:%M %p"
+            try:
+                for col in ("Timestamp", "Last Emptied", "Last Overflow"):
+                    if col in display_df.columns:
+                        display_df[col] = pd.to_datetime(display_df[col], errors = "coerce").dt.strftime(fmt)
+            except Exception:
+                fmt_win = "%d %b %Y, %#I:%M %p"
+                for col in ("Timestamp", "Last Emptied", "Last Overflow"):
+                    if col in display_df.columns:
+                        display_df[col] = pd.to_datetime(display_df[col], errors = "coerce").dt.strftime(fmt_win)
 
             util.render_table(display_df[summary_cols], height = 360)
             util.download_button_from_df(
@@ -73,9 +81,13 @@ def show_dashboard():
                 )
             else:
                 urgent_df = urgent_df.set_index("BinID", drop=True)
-                urgent_display = urgent_df.copy()
+                urgent_display = util.ensure_columns(urgent_df.copy(), urgent_cols)
                 if "Timestamp" in urgent_display.columns:
-                    urgent_display["Timestamp"] = pd.to_datetime(urgent_display["Timestamp"]).dt.strftime("%d %b %Y, %#I:%M %p")
+                    try:
+                        urgent_display["Timestamp"] = pd.to_datetime(urgent_display["Timestamp"]).dt.strftime("%d %b %Y, %-I:%M %p")
+                    except Exception:
+                        urgent_display["Timestamp"] = pd.to_datetime(urgent_display["Timestamp"], errors="coerce").dt.strftime("%d %b %Y, %#I:%M %p")
+
                 util.render_table(urgent_display[urgent_cols], height = 360)
                 util.download_button_from_df(
                     urgent_display,
