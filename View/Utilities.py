@@ -159,7 +159,7 @@ def render_map_section(map_data: pd.DataFrame):
 
 def filter_urgent(df, *, fill_thresh=85, temp_thresh=40, battery_thresh=3.2):
     if df is None or df.empty:
-        return df
+        return pd.DataFrame(columns=["BinID", "Timestamp", "Alert"])
 
     snap = df.reset_index().copy()
 
@@ -167,16 +167,20 @@ def filter_urgent(df, *, fill_thresh=85, temp_thresh=40, battery_thresh=3.2):
     # We expect: Fill, Temperature, Battery
     if "Fill" in snap.columns:
         snap["Fill"] = pd.to_numeric(snap["Fill"], errors="coerce")
+
     if "Temperature" in snap.columns:
         snap["Temperature"] = pd.to_numeric(snap["Temperature"], errors="coerce")
+
     elif "Temp" in snap.columns:
         snap = snap.rename(columns={"Temp": "Temperature"})
         snap["Temperature"] = pd.to_numeric(snap["Temperature"], errors="coerce")
+
     if "Battery" in snap.columns:
         snap["Battery"] = pd.to_numeric(snap["Battery"], errors="coerce")
 
     # Build mask with the SAME columns the classifier will use
-    mask = False
+    mask = pd.Series(False, index=snap.index)
+
     if "Fill" in snap.columns:
         mask = (snap["Fill"] >= fill_thresh)
     if "Temperature" in snap.columns:
@@ -184,9 +188,9 @@ def filter_urgent(df, *, fill_thresh=85, temp_thresh=40, battery_thresh=3.2):
     if "Battery" in snap.columns:
         mask = mask | (snap["Battery"] <= battery_thresh)
 
-    urgent = snap[mask].copy()
+    urgent = snap.loc[mask.fillna(False)].copy()
     if urgent.empty:
-        return urgent
+        return pd.DataFrame(columns=["BinID", "Timestamp", "Alert"])
 
     def classify(row):
         f = row.get("Fill")
