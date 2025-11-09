@@ -27,7 +27,7 @@ WEATHER_JITTER_C = float(os.environ.get("WEATHER_JITTER_C", "0.0"))
 
 def _advance_sensor(s, dt_minutes: int | None = None):
     if hasattr(s, "simulate_changes"):
-        s.simulate_changes(dt_minutes=dt_minutes or 15)
+        s.simulate_changes(dt_minutes=dt_minutes or 15, write_interval_seconds=WRITE_INTERVAL_SECONDS)
         if hasattr(s, "attempt_empty_event"):
             try:
                 s.attempt_empty_event(base_threshold=getattr(s, "fill_threshold", 85), empty_chance=0.005)

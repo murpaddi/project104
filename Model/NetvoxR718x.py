@@ -83,8 +83,8 @@ class NetvoxR718x:
 
 
 
-    def simulate_changes(self, dt_minutes: int = 15):
-        base_rate_per_hour = 4.0 # Base fill rate per hour
+    def simulate_changes(self, dt_minutes: int = 15, write_interval_seconds: int = 900):
+        base_rate_per_hour = 0.25 * (900 / write_interval_seconds) # Base fill rate per hour
         avg_fill_change_per_hour = base_rate_per_hour * self.fill_sentivity
         noise_per_hour = 0.1 # Random noise factor per hour
 
@@ -124,19 +124,34 @@ class NetvoxR718x:
 
 
 
-    def attempt_empty_event(self, base_threshold: int = 85, empty_chance = 0.005) -> bool:
-        if self.fill_level_percent >= base_threshold:
-            overfill_factor = min((self.fill_level_percent - base_threshold) / 20, 1.0)
-            prob = empty_chance + (overfill_factor * (1 - empty_chance))
+    def attempt_empty_event(
+        self, 
+        base_threshold: int = 85, 
+        p_min: float = 0.01,
+        p_max: float = 0.20,
+        overflow_cap: float = 120.0
+    ) -> bool:
+        if self.fill_level_percent < base_threshold:
+            return False
+        
+        x = (self.fill_level_percent - base_threshold) / (overflow_cap - base_threshold)
+        x = max(0.0 , min(x, 1.0))
 
-            if random.random() < prob:
-                self.fill_level_percent = 0
-                self.last_emptied = datetime.now()
-                self.overflow = False
-            else:
-                if self.fill_level_percent > 100:
-                    self.fill_level_percent = min(self.fill_level_percent + random.uniform(0,5), 120)
-                    self.overflow = True
+        prob = p_min + (p_max - p_min) * (x ** 2)
+
+        if random.random() < prob:
+            self.fill_level_percent = 0
+            self.last_emptied = datetime.now(timezone.utc)
+            self.overflow = False
+            return True
+        
+        if self.fill_level_percent >= 100:
+            self.fill_level_percent = min(self.fill_level_percent + random.uniform(0, 3), overflow_cap)
+            self.overflow = True
+        else:
+            self.overflow = False
+
+        return False
         
 
     def update_temperature(self):
