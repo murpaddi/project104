@@ -26,7 +26,7 @@ def triple_column():
     return column1, column2, column3
 
 def two_to_one():
-    column1, _, column2 = st.columns([2, 0.05, 1])
+    column1, _, column2 = st.columns([5, 0.05, 3])
     return column1,column2
 
 def remove_elements():
