@@ -128,8 +128,9 @@ class NetvoxR718x:
         self, 
         base_threshold: int = 85, 
         p_min: float = 0.01,
-        p_max: float = 0.20,
-        overflow_cap: float = 120.0
+        p_max: float = 0.8,
+        overflow_cap: float = 100.0,
+        force_after_ticks: int = 4
     ) -> bool:
         if self.fill_level_percent < base_threshold:
             return False
