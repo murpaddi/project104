@@ -36,13 +36,13 @@ def _advance_sensor(s, dt_minutes: int | None = None):
                     p_max = 0.8,
                     overflow_cap=100.0
                     )
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"Attempted bin empty error: {e}")
         if hasattr(s, "update_temperature"):
             try:
                 s.update_temperature()
             except Exception as e:
-                print(f"attempt_emtpy_event error", {e})
+                print(f"update_temperature error", {e})
         return
     for m in ("step", "tick", "advance", "simulate_step", "simulate", "update"):
         if hasattr(s, m):
