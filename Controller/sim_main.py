@@ -30,14 +30,19 @@ def _advance_sensor(s, dt_minutes: int | None = None):
         s.simulate_changes(dt_minutes=dt_minutes or 15, write_interval_seconds=WRITE_INTERVAL_SECONDS)
         if hasattr(s, "attempt_empty_event"):
             try:
-                s.attempt_empty_event(base_threshold=getattr(s, "fill_threshold", 85), empty_chance=0.005)
+                s.attempt_empty_event(
+                    base_threshold=getattr(s, "fill_threshold", 85),
+                    p_min = 0.03,
+                    p_max = 0.8,
+                    overflow_cap=100.0
+                    )
             except Exception:
                 pass
         if hasattr(s, "update_temperature"):
             try:
                 s.update_temperature()
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"attempt_emtpy_event error", {e})
         return
     for m in ("step", "tick", "advance", "simulate_step", "simulate", "update"):
         if hasattr(s, m):
