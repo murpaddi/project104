@@ -2,6 +2,7 @@ import time
 import random
 import os
 import pandas as pd
+import _pydatetime
 from datetime import datetime, timezone
 from typing import List
 
@@ -85,7 +86,7 @@ def main():
             start_batt = float(row.get("battery_v", start_batt))
             fill_thresh = int(row.get("fill_threshold", fill_thresh))
 
-        sensors.append(NetvoxR718x(
+        s = NetvoxR718x(
             sensor_id=sensor_id,
             fill_level_percent=start_fill,
             temperature_c=start_temp,
@@ -93,7 +94,24 @@ def main():
             fill_threshold=fill_thresh,
             enable_traffic = True,
             fill_sentivity = random.randint(1, 5)
-        ))
+        )
+
+        if not last_idx.empty and sensor_id in last_idx.index:
+            row = last_idx.loc[sensor_id]
+
+            if pd.notna(row.get("last_emptied")):
+                s.last_emptied = pd.to_datetime(row["last_emptied"], utc=True).to_pydatetime()
+
+            if pd.notna(row.get("last_overflow")):
+                s.last_overflow = pd.to_datetime(row["last_overflow"], utc=True).to_pydatetime()
+            
+            if pd.notna(row.get("overflow_count")):
+                s.overflow_count = int(row["overflow_count"])
+            
+            if pd.notna(row.get("overflow")):
+                s.overflow = bool(row["overflow"])
+        
+        sensors.append(s)
 
         coords_rows.append({
             "bin_id": bin_id,
