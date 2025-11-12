@@ -32,8 +32,8 @@ def _advance_sensor(s, dt_minutes: int | None = None):
             try:
                 s.attempt_empty_event(
                     base_threshold=getattr(s, "fill_threshold", 85),
-                    p_min = 0.03,
-                    p_max = 0.8,
+                    p_min = 0.01,
+                    p_max = 0.2,
                     overflow_cap=100.0
                     )
             except Exception as e:
