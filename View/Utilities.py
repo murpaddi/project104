@@ -10,6 +10,8 @@ from zoneinfo import ZoneInfo
 
 MEL = ZoneInfo("Australia/Melbourne")
 
+# === TIMEZONE HELPER ===
+
 def _to_utc(dt):
     if dt is None:
         return None
@@ -17,34 +19,66 @@ def _to_utc(dt):
         dt = dt.replace(tzinfo=MEL)
     return dt.astimezone(timezone.utc)
 
-def double_column():
-    column1, _, column2= st.columns([1, .05, 1])
-    return column1,column2
 
-def triple_column():
-    column1, column2, column3 = st.columns([1, 1, 1])
-    return column1, column2, column3
+# === LIVE DATA / CACHING ===
 
-def two_to_one():
-    column1, _, column2 = st.columns([5, 0.05, 3])
-    return column1,column2
+@st.cache_data(ttl=2)
+def _cached_load():
+    return load_live_with_coords()
 
-def remove_elements():
-        st.markdown(
-        """
-            <style>
-            [data-testid="stElementToolbar"] {
-            display: none;
-            }
+def get_latest_df(show_errors: bool = True) -> pd.DataFrame:
+    try:
+        return _cached_load()
+    except FileNotFoundError:
+        if show_errors:
+            st.error("No data found in the database yet.")
+        return pd.DataFrame()
+    except Exception as e:
+        if show_errors:
+            st.error(f"Error loading data: {e}")
+        return pd.DataFrame()
+    
+# === DATAFRAME / COLUMN HELPERS ===
 
-            div[data-testid="stStatusWidget"] { display: none !important; }
-            #stDecoration { display: none !important; }
-            footer { visibility: hidden !important; }
-            </style>
-        """,
-        unsafe_allow_html=True  
-    )
+def ensure_columns(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
+    out = df.copy()
+    for c in cols:
+        if c not in out.columns:
+            out[c] = pd.NA
+    return out
 
+def render_table(df: pd.DataFrame, *, width="stretch", height=300):
+    if df is None or df.empty:
+        st.info("No data available.")
+        return
+    st.dataframe(df, width=width, height=height)
+
+def load_bin_log(device_id: str) -> pd.DataFrame:
+    """Load historical readings for a single bin from the DB archive"""
+    from Model.data_loader import load_archive_with_coords
+    try:
+        df = load_archive_with_coords(device_id)
+        if df.empty:
+            return df
+        
+        need = ["Timestamp", "Fill", "Temperature", "Battery"]
+        for c in need:
+            if c not in df.columns:
+                df[c] = pd.NA
+        return df[need + [c for c in df.columns if c not in need]]
+    except Exception:
+        return pd.DataFrame()
+    
+def prep_map_data(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return df
+    map_df = df.reset_index().copy()
+    if "Latitude" in map_df.columns and "Longitude" in map_df.columns:
+        map_df = map_df.rename(columns={"Latitude": "Lat", "Longitude":"Lng"})
+    return map_df
+
+
+# === MAP RENDERING ===
 
 def load_map(data: pd.DataFrame) -> pdk.Deck:
     if data is None or data.empty:
@@ -92,73 +126,12 @@ def load_map(data: pd.DataFrame) -> pdk.Deck:
             tooltip=tooltip
         )
 
-def ensure_columns(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
-    out = df.copy()
-    for c in cols:
-        if c not in out.columns:
-            out[c] = pd.NA
-    return out
-
-def render_table(df: pd.DataFrame, *, width="stretch", height=300):
-    if df is None or df.empty:
-        st.info("No data available.")
-        return
-    st.dataframe(df, width=width, height=height)
-
-def get_latest_df(show_errors: bool = True) -> pd.DataFrame:
-    try:
-        return _cached_load()
-    except FileNotFoundError:
-        if show_errors:
-            st.error("No data found in the database yet.")
-        return pd.DataFrame()
-    except Exception as e:
-        if show_errors:
-            st.error(f"Error loading data: {e}")
-        return pd.DataFrame()
-    
-def load_bin_log(device_id: str) -> pd.DataFrame:
-    """Load historical readings for a single bin from the DB archive"""
-    from Model.data_loader import load_archive_with_coords
-    try:
-        df = load_archive_with_coords(device_id)
-        if df.empty:
-            return df
-        
-        need = ["Timestamp", "Fill", "Temperature", "Battery"]
-        for c in need:
-            if c not in df.columns:
-                df[c] = pd.NA
-        return df[need + [c for c in df.columns if c not in need]]
-    except Exception:
-        return pd.DataFrame()
-    
-def prep_map_data(df: pd.DataFrame) -> pd.DataFrame:
-    if df.empty:
-        return df
-    map_df = df.reset_index().copy()
-    if "Latitude" in map_df.columns and "Longitude" in map_df.columns:
-        map_df = map_df.rename(columns={"Latitude": "Lat", "Longitude":"Lng"})
-    return map_df
-
-
-def download_button_from_df(df: pd.DataFrame, filename: str, label: str, *, key: str | None = None):
-    """Render a standard download button for a DataFrame as Excel."""
-    disabled = (df is None) or df.empty
-    data = b"" if disabled else df.to_csv(index=False).encode("utf-8")
-    st.download_button(
-        label=label,
-        data=data,
-        file_name=filename,
-        mime='text/csv',
-        disabled=disabled,
-        key=key
-    )
-
 def render_map_section(map_data: pd.DataFrame):
     st.subheader("Real Time Bin Monitoring Map")
     st.pydeck_chart(load_map(map_data))
 
+
+# === URGENT FILTER LOGIC ===
 
 def filter_urgent(df, *, fill_thresh=85, temp_thresh=40, battery_thresh=3.2):
     if df is None or df.empty:
@@ -224,9 +197,7 @@ def filter_urgent(df, *, fill_thresh=85, temp_thresh=40, battery_thresh=3.2):
     keep = [c for c in ["BinID", "Timestamp", "Alert"] if c in urgent.columns]
     return urgent[keep] if keep else urgent
 
-@st.cache_data(ttl=2)
-def _cached_load():
-    return load_live_with_coords()
+# === ARCHIVE / HISTORY HELPERS ===
 
 def get_archive_with_coords_df(device_id: str | None, *, since, until, limit: int | None = None) -> pd.DataFrame:
     try:
@@ -253,31 +224,7 @@ def get_archive_with_coords_df(device_id: str | None, *, since, until, limit: in
     except Exception as e:
         st.error(f"Error loading merged archive data: {e}")
         return pd.DataFrame()
-
-def refresh_button(label: str = "Refresh Now", key: str | None = None) -> bool:
-    with st.sidebar:
-        return st.button(label, key=key)
-
-def auto_refresh_controls(key_prefix=""):
-    with st.sidebar:
-        enabled = st.toggle("Auto-refresh", value=True, key=f"{key_prefix}auto_refresh_enabled")
-        interval = st.slider("Refresh interval (sec)", 2, 60, 2, key=f"{key_prefix}auto_refresh_interval")
-        st.caption("Dashboard will re-run periodically while enabled.")
-    return enabled, interval
-
-def maybe_autorefresh(enabled: bool, interval_sec: int):
-    if not enabled:
-        return
-    try:
-        from streamlit.runtime.scriptrunner import get_script_run_ctx
-        ctx = get_script_run_ctx()
-        if ctx is None:
-            return
-        time.sleep(interval_sec)
-        st.rerun()
-    except Exception as e:
-        st.warning(f"Auto-refresh skipped: {e}")
-
+    
 def get_bin_archive_df(sensor_id: str, *, days:int = 1) -> pd.DataFrame:
     since = datetime.now() - timedelta(days=days)
     until = datetime.now()
@@ -293,6 +240,22 @@ def get_bin_archive_df(sensor_id: str, *, days:int = 1) -> pd.DataFrame:
         st.error(f"Error loading archive data: {e}")
         return pd.DataFrame()
     
+
+# === DOWNLOAD HELPERS ===
+
+def download_button_from_df(df: pd.DataFrame, filename: str, label: str, *, key: str | None = None):
+    """Render a standard download button for a DataFrame as Excel."""
+    disabled = (df is None) or df.empty
+    data = b"" if disabled else df.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        label=label,
+        data=data,
+        file_name=filename,
+        mime='text/csv',
+        disabled=disabled,
+        key=key
+    )
+
 def prepare_download(df: pd.DataFrame, fmt: str) -> tuple[bytes, str, str]:
     import io
     fmt = fmt.upper()
@@ -332,3 +295,60 @@ def prepare_download(df: pd.DataFrame, fmt: str) -> tuple[bytes, str, str]:
         mime, ext = "application/octet-stream", "feather"
 
     return data, mime, ext
+
+
+# === LAYOUT / UI HELPERS ===
+
+def double_column():
+    column1, _, column2= st.columns([1, .05, 1])
+    return column1,column2
+
+def triple_column():
+    column1, column2, column3 = st.columns([1, 1, 1])
+    return column1, column2, column3
+
+def two_to_one():
+    column1, _, column2 = st.columns([5, 0.05, 3])
+    return column1,column2
+
+def remove_elements():
+        st.markdown(
+        """
+            <style>
+            [data-testid="stElementToolbar"] {
+            display: none;
+            }
+
+            div[data-testid="stStatusWidget"] { display: none !important; }
+            #stDecoration { display: none !important; }
+            footer { visibility: hidden !important; }
+            </style>
+        """,
+        unsafe_allow_html=True  
+    )
+        
+# REFRESH CONTROLS
+
+def refresh_button(label: str = "Refresh Now", key: str | None = None) -> bool:
+    with st.sidebar:
+        return st.button(label, key=key)
+
+def auto_refresh_controls(key_prefix=""):
+    with st.sidebar:
+        enabled = st.toggle("Auto-refresh", value=True, key=f"{key_prefix}auto_refresh_enabled")
+        interval = st.slider("Refresh interval (sec)", 2, 60, 2, key=f"{key_prefix}auto_refresh_interval")
+        st.caption("Dashboard will re-run periodically while enabled.")
+    return enabled, interval
+
+def maybe_autorefresh(enabled: bool, interval_sec: int):
+    if not enabled:
+        return
+    try:
+        from streamlit.runtime.scriptrunner import get_script_run_ctx
+        ctx = get_script_run_ctx()
+        if ctx is None:
+            return
+        time.sleep(interval_sec)
+        st.rerun()
+    except Exception as e:
+        st.warning(f"Auto-refresh skipped: {e}")
