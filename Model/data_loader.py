@@ -1,122 +1,183 @@
-from pathlib import Path
 import pandas as pd
+from zoneinfo import ZoneInfo
+from typing import Optional, Sequence
+from Model import repository as repo
 
-BASE_DIR = Path(__file__).resolve().parent
-DATA_DIR = BASE_DIR / "Data"
+MEL_TZ = ZoneInfo("Australia/Melbourne")
 
-MASTER_CSV = DATA_DIR / "master_sensor_data.csv"
-COORDS_CSV = DATA_DIR / "coordinates.csv"
+# ===HELPER FUNCTIONS===
 
-# inside Model/data_loader.py
+def _to_melbourne(ts) -> pd.Series:
+    s = pd.to_datetime(ts, errors="coerce", utc=True)
+    if not isinstance(s, pd.Series):
+        s=pd.Series(s)
+    return s.dt.tz_convert(MEL_TZ)
 
-def load_live_with_coords() -> pd.DataFrame:
-    live = pd.read_csv(MASTER_CSV)
-    coords = pd.read_csv(COORDS_CSV)
+def _numeric(df: pd.DataFrame, cols: Sequence[str]) -> None:
+    for c in cols:
+        if c in df.columns:
+            df[c] = pd.to_numeric(df[c], errors="coerce")
 
-    # --- Parse timestamp for history ops
-    if "timestamp" in live.columns:
-        live["timestamp"] = pd.to_datetime(
-            live["timestamp"], errors="coerce", utc=True
-        ).dt.tz_convert("Australia/Melbourne")
-
-
-    live = live.sort_values(["sensor_id", "timestamp"])
-    live["is_overflow"] = pd.to_numeric(live.get("fill_level_percent"), errors="coerce") >= 98
-
-    # Count only *new* overflow events (rising edge: False → True)
-    live["overflow_event"] = live["is_overflow"] & (
-        ~live.groupby("sensor_id")["is_overflow"].shift(fill_value=False)
+def _rename_ui(df: pd.DataFrame) -> pd.DataFrame:
+    return df.rename(
+        columns={
+            "bin_id": "BinID",
+            "sensor_id": "DeviceID",
+            "timestamp": "Timestamp",
+            "fill_level_percent": "Fill",
+            "temperature_c": "Temperature",
+            "battery_v": "Battery",
+            "lat": "Latitude",
+            "lng": "Longitude",
+            "overflow_count": "Overflow #",
+            "last_overflow": "Last Overflow",
+            "last_emptied": "Last Emptied"
+        }
     )
 
-    # Total number of distinct overflow events per bin
-    overflow_counts = (
-        live.groupby("sensor_id", as_index=False)["overflow_event"]
-            .sum()
-            .rename(columns={"overflow_event": "Overflow Count"})
-    )
+def _finalise(df: pd.DataFrame) -> pd.DataFrame:
+    if "Fill" in df.columns:
+        df["Fill"] = pd.to_numeric(df["Fill"], errors="coerce").clip(0, 100)
 
-    # Timestamp of the most recent overflow *start*
-    last_overflow_ts = (
-        live[live["overflow_event"]]
-            .groupby("sensor_id", as_index=False)["timestamp"]
-            .max()
-            .rename(columns={"timestamp": "Last Overflow"})
-    )
+    preferred = [
+        "BinID", "DeviceID", "Timestamp",
+        "Fill", "Temperature", "Battery",
+        "Latitude", "Longitude",
+        "Overflow #", "Last Overflow", "Last Emptied",
+        "fill_threshold"
+    ]
+    cols = [c for c in preferred if c in df.columns] + [c for c in df.columns if c not in preferred]
+    df = df.loc[:, pd.Index(cols).drop_duplicates()]
 
-    # 2) Last Emptied from full history (simple heuristic):
-    # detect resets: large drop in fill level between consecutive rows for a sensor
-    live = live.sort_values(["sensor_id", "timestamp"])
-    live["fill_prev"] = live.groupby("sensor_id")["fill_level_percent"].shift(1)
-    live["drop"] = pd.to_numeric(live["fill_prev"], errors="coerce") - pd.to_numeric(
-        live["fill_level_percent"], errors="coerce"
-    )
-    # Consider an empty event if drop >= 50 (tweak threshold)
-    live["emptied_event"] = live["drop"] >= 50
+    if "BinID" in df.columns and df["BinID"].notna().any():
+        df = df.set_index("BinID", drop=True)
+    elif "DeviceID" in df.columns:
+        df = df.set_index("DeviceID", drop=True)
+    return df
 
-    last_emptied_ts = (
-        live[live["emptied_event"]]
-        .groupby("sensor_id", as_index=False)["timestamp"]
-        .max()
-        .rename(columns={"timestamp": "Last Emptied"})
-    )
+# === WEATHER API HELPERS ===
+def fetch_bins_weather_now() -> pd.DataFrame:
+    """
+    Per-sensor weather using static coordinates.
+    Returns [sensor_id, temperature_c, wx_time_utc]
+    """
+    static_df = repo.fetch_static_bins_df()
+    if static_df.empty:
+        return pd.DataFrame(columns=["sensor_id", "temperature_c", "wx_time_utc"])
+    sensor_ids = static_df["sensor_id"].dropna().unique().tolist()
+    return repo.fetch_weather_now_for_sensors(sensor_ids=sensor_ids)
 
-    # ---------- existing: collapse to latest reading per sensor ----------
-    if "timestamp" in live.columns:
-        latest = (
-            live.sort_values("timestamp")
-                .groupby("sensor_id", as_index=False)
-                .tail(1)
-        )
-    else:
-        latest = live.drop_duplicates(subset="sensor_id", keep="last")
-
-    # Merge with coordinates
-    merged = latest.merge(
-        coords[["bin_id", "sensor_id", "lat", "lng"]],
-        on="sensor_id",
-        how="left"
-    )
-
-    # Rename to dashboard names (ensure Fill exists)
-    merged.rename(columns={
+def load_weather_now_with_coords() -> pd.DataFrame:
+    coords = repo.fetch_static_bins_df()
+    if coords.empty:
+        return pd.DataFrame(columns=[
+            "BinID", "DeviceID", "Temperature", "Latitude", "Longitude", "Timestamp"
+        ]).set_index("BinID", drop=True)
+    
+    wx = repo.fetch_weather_now_for_sensors(sensor_ids=coords["sensor_id"].dropna().unique().tolist())
+    df = coords.merge(wx, on="sensor_id", how="left")
+    df = df.rename(columns={
         "bin_id": "BinID",
         "sensor_id": "DeviceID",
         "lat": "Latitude",
         "lng": "Longitude",
-        "temperature_c": "Temp",
-        "battery_v": "Battery",
-        "fill_level_percent": "Fill",
-    }, inplace=True)
+        "temperature_c": "Temperature",
+        "wx_time_utc": "Timestamp"
+    })
 
-    for metric_df in (overflow_counts, last_overflow_ts, last_emptied_ts):
-        merged = merged.merge(metric_df, left_on="DeviceID", right_on="sensor_id", how="left")
-        merged.drop(columns="sensor_id", inplace=True, errors="ignore")
+    if "Timestamp" in df.columns:
+        df["Timestamp"] = _to_melbourne(df["Timestamp"])
+    
+    return _finalise(df)
 
-    merged=merged.loc[:, ~merged.columns.duplicated()]
+#=== LOAD LIVE DATA WITH COORDINATES===
+    #Latest readings from archive merged with static coordinates
+    #Feeds dashboard realtime snapshots
+def load_live_with_coords() -> pd.DataFrame:
 
-    if "Overflow Count" not in merged.columns:
-        merged["Overflow Count"] = 0
-    merged["Overflow Count"] = pd.to_numeric(merged["Overflow Count"], errors = "coerce").fillna(0).astype(int)
+    live = repo.fetch_latest_snapshot_df()
+    coords = repo.fetch_static_bins_df()
 
-    for col in ("Last Overflow", "Last Emptied"):
-        if col not in merged.columns:
-            merged[col] = pd.NaT
+    if live is None or live.empty:
+        df = coords[["bin_id","sensor_id","lat","lng"]].copy() if not coords.empty else pd.DataFrame()
+        df = _rename_ui(df)
+        return _finalise(df)
+    
+    need_temp = ("temperature_c" not in live.columns) or (live.get("temperature_c").isna().all())
 
-    if "Error Type" not in merged.columns:
-        merged["Error Type"] = None
+    if need_temp and not coords.empty and "sensor_id" in live.columns:
+        wx = repo.fetch_weather_now_for_sensors(sensor_ids=live["sensor_id"].dropna().unique().tolist())
+        if not wx.empty:
+            live = live.merge(wx, on="sensor_id", how="left")
+            # normalise to a single 'temperature_c' column
+            if "temperature_c_x" in live.columns and "temperature_c_y" in live.columns:
+                live["temperature_c"] = live["temperature_c_x"].combine_first(live["temperature_c_y"])
+                live.drop(columns=["temperature_c_x", "temperature_c_y"], inplace=True)
+            # wx_time_utc is informational; drop for UI
+            live.drop(columns=["wx_time_utc"], errors="ignore", inplace=True)       
 
-    # Index + save
-    merged = merged.set_index("BinID", drop=True)
+    #Converting timestamps to Melbourne time
+    if "timestamp" in live.columns:
+        live["timestamp"] = _to_melbourne(live["timestamp"])
 
-    merged = merged.drop(
-    columns=["overflow", "overflow_count", "last_overflow", "last_emptied",
-             "is_overflow", "fill_prev", "drop", "emptied_event"],
-    errors="ignore"
-)
-    merged = merged.loc[:, ~merged.columns.duplicated()]
+    _numeric(live, ["fill_level_percent", "temperature_c", "battery_v",
+                    "fill_threshold", "overflow_count"])
+    
+    if "last_overflow" in live.columns:
+        live["last_overflow"] = _to_melbourne(live["last_overflow"])
+    if "last_emptied" in live.columns:
+        live["last_emptied"] = _to_melbourne(live["last_emptied"])
 
-    if "timestamp" in merged.columns:
-        merged.rename(columns={"timestamp": "Timestamp"}, inplace = True)
+    #merge static coordinates onto live data snapshot
+    df = live.merge(
+        coords[["bin_id", "sensor_id", "lat", "lng"]],
+        on="sensor_id",
+        how="left",
+        validate="many_to_one"
+    )
 
-    merged.to_csv(DATA_DIR / "master_bin_file.csv", index=True)
-    return merged
+    #rename columns for UI
+    df = _rename_ui(df)
+    return _finalise(df)
+
+def load_archive_with_coords(
+    device_id: str,
+    *,
+    since: Optional[str | pd.Timestamp] = None,
+    until: Optional[str | pd.Timestamp] = None,
+    limit: Optional[int] = None,
+    with_coords: bool = False,
+) -> pd.DataFrame:
+    """time series data from the archive table for downloads and analytics"""
+    raw = repo.fetch_archive_df(
+        since=since,
+        until=until,
+        sensor_ids=[device_id],
+        limit=limit
+    )
+    if raw.empty:
+        return raw
+    
+    #Types
+    raw["timestamp"] = _to_melbourne(raw["timestamp"])
+
+    _numeric(raw, ["fill_level_percent", "temperature_c", "battery_v",
+                   "fill_threshold", "overflow_count"])
+    
+    if "last_overflow" in raw.columns:
+        raw["last_overflow"] = _to_melbourne(raw["last_overflow"])
+
+    if "last_emptied" in raw.columns:
+        raw["last_emptied"] = _to_melbourne(raw["last_emptied"])
+    
+    if with_coords:
+        coords = repo.fetch_static_bins_df()
+        raw = raw.merge(
+            coords[["bin_id", "sensor_id", "lat", "lng"]],
+            on="sensor_id",
+            how="left",
+            validate="many_to_one"
+        )
+    
+    out = _rename_ui(raw)
+    return _finalise(out)

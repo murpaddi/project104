@@ -3,12 +3,12 @@ import random
 import math
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
-import time
+from typing import Optional
 
 class NetvoxR718x:
     def __init__(self, 
                  sensor_id: str, 
-                 fill_level_percent: int = 0,
+                 fill_level_percent: float = 0.0,
                  temperature_c: float = 22.0,
                  battery_v: float = 3.6,
                  fill_threshold: int = 85,
@@ -28,7 +28,7 @@ class NetvoxR718x:
                  **kwargs):
         
         self.sensor_id = sensor_id
-        self.fill_level_percent = int(fill_level_percent)
+        self.fill_level_percent = float(fill_level_percent)
         self.temperature_c = float(temperature_c)
         self.battery_v = float(battery_v)
         self.fill_threshold = int(fill_threshold)
@@ -39,8 +39,8 @@ class NetvoxR718x:
         self.timestamp = datetime.now(timezone.utc)
 
         #Event timestamps
-        self.last_emptied: str | None = None
-        self.last_overflow: str | None = None
+        self.last_emptied: Optional[datetime] | None = None
+        self.last_overflow: Optional[datetime] | None = None
 
         # Enable traffic-based fill simulation
         self.enable_traffic = enable_traffic
@@ -65,10 +65,8 @@ class NetvoxR718x:
     def to_dict(self) -> dict:
         return {
             "sensor_id": self.sensor_id,
-            "timestamp": self.timestamp.isoformat(),
-            # "lat": self.lat,
-            #"lng": self.lng,
-            "fill_level_percent": round(self.fill_level_percent),
+            "timestamp": self.timestamp,
+            "fill_level_percent": round(self.fill_level_percent, 0),
             "temperature_c": round(self.temperature_c, 1),
             "battery_v": round(self.battery_v, 3),
             "fill_threshold": self.fill_threshold,
@@ -85,8 +83,8 @@ class NetvoxR718x:
 
 
 
-    def simulate_changes(self, dt_minutes: int = 15):
-        base_rate_per_hour = 0.25 # Base fill rate per hour
+    def simulate_changes(self, dt_minutes: int = 15, write_interval_seconds: int = 900):
+        base_rate_per_hour = 0.25 * (900 / write_interval_seconds) # Base fill rate per hour
         avg_fill_change_per_hour = base_rate_per_hour * self.fill_sentivity
         noise_per_hour = 0.1 # Random noise factor per hour
 
@@ -102,7 +100,7 @@ class NetvoxR718x:
             if not self.overflow:
                 self.overflow = True
                 self.overflow_count += 1
-                self.last_overflow = now.isoformat()
+                self.last_overflow = now
             self.fill_level_percent = 100.0
         else:
             self.fill_level_percent = max(0.0, proposed)
@@ -120,25 +118,42 @@ class NetvoxR718x:
 
     def empty_event(self, residue_percent: int = 0):
         self.fill_level_percent = max(0, residue_percent)
-        self.last_emptied = datetime.now(timezone.utc).isoformat()
+        self.last_emptied = datetime.now(timezone.utc)
         if getattr(self, 'overflow', False):
             self.overflow = False
 
 
 
-    def attempt_empty_event(self, base_threshold: int = 85) -> bool:
+    def attempt_empty_event(
+        self, 
+        base_threshold: int = 85, 
+        p_min: float = 0.01,
+        p_max: float = 0.8,
+        overflow_cap: float = 100.0,
+        force_after_ticks: int = 4
+    ) -> bool:
         if self.fill_level_percent < base_threshold:
             return False
         
-        # Logistic curve: slow rise → steep increase → cap at 100%
-        x = self.fill_level_percent - base_threshold
-        chance = 1 / (1 + math.exp(-0.06 * (x - 30)))  # tweak steepness here
-        if random.random() < chance:
-            self.empty_event(residue_percent=random.randint(0, 2))
+        x = (self.fill_level_percent - base_threshold) / (overflow_cap - base_threshold)
+        x = max(0.0 , min(x, 1.0))
+
+        prob = p_min + (p_max - p_min) * (x ** 2)
+
+        if random.random() < prob:
+            self.fill_level_percent = 0
+            self.last_emptied = datetime.now(timezone.utc)
+            self.overflow = False
             return True
+        
+        if self.fill_level_percent >= 100:
+            self.fill_level_percent = min(self.fill_level_percent + random.uniform(0, 3), overflow_cap)
+            self.overflow = True
+        else:
+            self.overflow = False
+
         return False
-
-
+        
 
     def update_temperature(self):
         """Simulate temperature based on time of day."""

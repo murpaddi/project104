@@ -2,34 +2,83 @@ import streamlit as st
 import pydeck as pdk
 import pandas as pd
 from io import BytesIO
-from pathlib import Path
-from Model.data_loader import load_live_with_coords
+from Model.data_loader import load_live_with_coords, load_archive_with_coords as _load_archive_with_coords
+from Model import repository as repo
 import time
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
-def double_column():
-    column1, _, column2= st.columns([1, .05, 1])
-    return column1,column2
+MEL = ZoneInfo("Australia/Melbourne")
 
-def two_to_one():
-    column1, _, column2 = st.columns([2, 0.05, 1])
-    return column1,column2
+# === TIMEZONE HELPER ===
 
-def remove_elements():
-        st.markdown(
-        """
-            <style>
-            [data-testid="stElementToolbar"] {
-            display: none;
-            }
+def _to_utc(dt):
+    if dt is None:
+        return None
+    if getattr(dt, "tzinfo", None) is None:
+        dt = dt.replace(tzinfo=MEL)
+    return dt.astimezone(timezone.utc)
 
-            div[data-testid="stStatusWidget"] { display: none !important; }
-            #stDecoration { display: none !important; }
-            footer { visibility: hidden !important; }
-            </style>
-        """,
-        unsafe_allow_html=True  
-    )
 
+# === LIVE DATA / CACHING ===
+
+@st.cache_data(ttl=2)
+def _cached_load():
+    return load_live_with_coords()
+
+def get_latest_df(show_errors: bool = True) -> pd.DataFrame:
+    try:
+        return _cached_load()
+    except FileNotFoundError:
+        if show_errors:
+            st.error("No data found in the database yet.")
+        return pd.DataFrame()
+    except Exception as e:
+        if show_errors:
+            st.error(f"Error loading data: {e}")
+        return pd.DataFrame()
+    
+# === DATAFRAME / COLUMN HELPERS ===
+
+def ensure_columns(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
+    out = df.copy()
+    for c in cols:
+        if c not in out.columns:
+            out[c] = pd.NA
+    return out
+
+def render_table(df: pd.DataFrame, *, width="stretch", height=300):
+    if df is None or df.empty:
+        st.info("No data available.")
+        return
+    st.dataframe(df, width=width, height=height)
+
+def load_bin_log(device_id: str) -> pd.DataFrame:
+    """Load historical readings for a single bin from the DB archive"""
+    from Model.data_loader import load_archive_with_coords
+    try:
+        df = load_archive_with_coords(device_id)
+        if df.empty:
+            return df
+        
+        need = ["Timestamp", "Fill", "Temperature", "Battery"]
+        for c in need:
+            if c not in df.columns:
+                df[c] = pd.NA
+        return df[need + [c for c in df.columns if c not in need]]
+    except Exception:
+        return pd.DataFrame()
+    
+def prep_map_data(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return df
+    map_df = df.reset_index().copy()
+    if "Latitude" in map_df.columns and "Longitude" in map_df.columns:
+        map_df = map_df.rename(columns={"Latitude": "Lat", "Longitude":"Lng"})
+    return map_df
+
+
+# === MAP RENDERING ===
 
 def load_map(data: pd.DataFrame) -> pdk.Deck:
     if data is None or data.empty:
@@ -65,7 +114,7 @@ def load_map(data: pd.DataFrame) -> pdk.Deck:
         "html": (
             "<b>Bin ID:</b> {BinID}<br/>"
             "<b>Fill:</b> {Fill}%<br/>"
-            "<b>Temp:</b> {Temp}°C<br/>"
+            "<b>Temperature:</b> {Temperature}°C<br/>"
             "<b>Battery:</b> {Battery}V"
         ),
         "style": {"backgroundColor": "rgba(255, 255, 255, 0.8)", "color": "black"},
@@ -77,60 +126,122 @@ def load_map(data: pd.DataFrame) -> pdk.Deck:
             tooltip=tooltip
         )
 
-def render_table(df: pd.DataFrame, *, use_container_width=True, height=300):
+def render_map_section(map_data: pd.DataFrame):
+    st.subheader("Real Time Bin Monitoring Map")
+    st.pydeck_chart(load_map(map_data))
+
+
+# === URGENT FILTER LOGIC ===
+
+def filter_urgent(df, *, fill_thresh=85, temp_thresh=40, battery_thresh=3.2):
     if df is None or df.empty:
-        st.info("No data available.")
-        return
-    st.dataframe(df, use_container_width=use_container_width, height=height)
+        return pd.DataFrame(columns=["BinID", "Timestamp", "Alert"])
 
-def get_latest_df(show_errors: bool = True) -> pd.DataFrame:
+    snap = df.reset_index().copy()
+
+    # Resolve canonical columns coming from data_loader (_rename_ui)
+    # We expect: Fill, Temperature, Battery
+    if "Fill" in snap.columns:
+        snap["Fill"] = pd.to_numeric(snap["Fill"], errors="coerce")
+
+    if "Temperature" in snap.columns:
+        snap["Temperature"] = pd.to_numeric(snap["Temperature"], errors="coerce")
+
+    elif "Temp" in snap.columns:
+        snap = snap.rename(columns={"Temp": "Temperature"})
+        snap["Temperature"] = pd.to_numeric(snap["Temperature"], errors="coerce")
+
+    if "Battery" in snap.columns:
+        snap["Battery"] = pd.to_numeric(snap["Battery"], errors="coerce")
+
+    # Build mask with the SAME columns the classifier will use
+    mask = pd.Series(False, index=snap.index)
+
+    if "Fill" in snap.columns:
+        mask = (snap["Fill"] >= fill_thresh)
+    if "Temperature" in snap.columns:
+        mask = mask | (snap["Temperature"] >= temp_thresh)
+    if "Battery" in snap.columns:
+        mask = mask | (snap["Battery"] <= battery_thresh)
+
+    urgent = snap.loc[mask.fillna(False)].copy()
+    if urgent.empty:
+        return pd.DataFrame(columns=["BinID", "Timestamp", "Alert"])
+
+    def classify(row):
+        f = row.get("Fill")
+        t = row.get("Temperature")
+        b = row.get("Battery")
+
+        # Only if ALL missing do we call it "No sensor response"
+        if pd.isna(f) and pd.isna(t) and pd.isna(b):
+            return "No sensor response"
+
+        if pd.notna(f) and f >= 100:
+            return "Overflowing"
+        if pd.notna(f) and f >= fill_thresh:
+            return f"Approaching full"
+        if pd.notna(t) and t >= temp_thresh:
+            return f"Heat Warning"
+        if pd.notna(b) and b <= battery_thresh:
+            return f"Low Battery"
+        return "Needs attention"
+    
+    if "BinID" not in urgent.columns and urgent.index.name == "BinID":
+        urgent = urgent.reset_index()
+    elif "BinID" not in urgent.columns:
+        urgent["BinID"] = urgent.index.astype(str)
+
+    urgent["Alert"] = urgent.apply(classify, axis=1)
+
+    keep = [c for c in ["BinID", "Timestamp", "Alert"] if c in urgent.columns]
+    return urgent[keep] if keep else urgent
+
+# === ARCHIVE / HISTORY HELPERS ===
+
+def get_archive_with_coords_df(device_id: str | None, *, since, until, limit: int | None = None) -> pd.DataFrame:
     try:
-        return _cached_load()
-    except FileNotFoundError:
-        if show_errors:
-            st.error("Required CSV files not found. Please run the simulator first.")
-        return pd.DataFrame()
+        since_utc = _to_utc(since)
+        until_utc = _to_utc(until)
+
+        if device_id:
+            return _load_archive_with_coords(
+                device_id,
+                since=_to_utc(since),
+                until=_to_utc(until),
+                limit=limit,
+                with_coords=True,
+            )
+        
+        raw = repo.fetch_archive_df(since=since_utc, until=until_utc, limit=limit)
+        if raw.empty:
+            return raw
+        
+        static = repo.fetch_static_bins_df()
+        merged = raw.merge(static, how="left", on="sensor_id")
+        return merged
+
     except Exception as e:
-        if show_errors:
-            st.error(f"Error loading data: {e}")
+        st.error(f"Error loading merged archive data: {e}")
         return pd.DataFrame()
     
-def load_bin_log(device_id: str) -> pd.DataFrame:
-    """Load individual bin logs from Models/Logs directory"""
+def get_bin_archive_df(sensor_id: str, *, days:int = 1) -> pd.DataFrame:
+    since = datetime.now() - timedelta(days=days)
+    until = datetime.now()
 
-    file_path = Path("Model/Data/Logs") / f"{device_id}_data_log.csv"
-    if not file_path.exists():
-        return pd.DataFrame()
     try:
-        df = pd.read_csv(file_path)
-
-        df = df.rename(columns={
-            "timestamp": "Timestamp",
-            "fill_level_percent": "Fill",
-            "temperature_c": "Temp",
-            "battery_v": "Battery"
-        })
-        if "Timestamp" in df.columns:
-            df["Timestamp"] = pd.to_datetime(df["Timestamp"], errors="coerce", utc=True).dt.tz_convert("Australia/Melbourne")
-        return df
-    except Exception:
+        df = repo.fetch_archive_df(
+            since=since,
+            until=until,
+            sensor_ids=[sensor_id],
+        )
+        return df if not df.empty else pd.DataFrame()
+    except Exception as e:
+        st.error(f"Error loading archive data: {e}")
         return pd.DataFrame()
     
-def prep_map_data(df: pd.DataFrame) -> pd.DataFrame:
-    if df.empty:
-        return df
-    map_df = df.reset_index().copy()
-    if "Latitude" in map_df.columns and "Longitude" in map_df.columns:
-        map_df = map_df.rename(columns={"Latitude": "Lat", "Longitude":"Lng"})
-    return map_df
 
-
-def df_to_excel_bytes(df: pd.DataFrame) -> bytes:
-    """Return a bytes payload for an Excel download from a DataFrame."""
-    output = BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df.to_excel(writer, index=False, sheet_name='Sheet1')
-    return output.getvalue()
+# === DOWNLOAD HELPERS ===
 
 def download_button_from_df(df: pd.DataFrame, filename: str, label: str, *, key: str | None = None):
     """Render a standard download button for a DataFrame as Excel."""
@@ -145,45 +256,78 @@ def download_button_from_df(df: pd.DataFrame, filename: str, label: str, *, key:
         key=key
     )
 
-def render_map_section(map_data: pd.DataFrame):
-    st.subheader("Real Time Bin Monitoring Map")
-    st.pydeck_chart(load_map(map_data))
+def prepare_download(df: pd.DataFrame, fmt: str) -> tuple[bytes, str, str]:
+    import io
+    fmt = fmt.upper()
 
-def filter_urgent(df, *, fill_thresh=85, temp_thresh=40):
-    if df.empty:
-        return df
+    data, mime, ext = b"", "text/plain", "txt"
 
-    snap = df.reset_index().copy()
-    snap["Fill"] = pd.to_numeric(snap.get("Fill"), errors="coerce")
-    snap["Temp"] = pd.to_numeric(snap.get("Temp"), errors="coerce")
-    snap["Battery"] = pd.to_numeric(snap.get("Battery"), errors="coerce")
+    if fmt == "CSV":
+        data = df.to_csv(index=False).encode("utf-8")
+        mime, ext = "text/csv", "csv"
+    
+    elif fmt == "JSON":
+        data = df.to_json(orient="records", indent=2).encode("utf-8")
+        mime, ext = "application/json", "json"
 
-    # Base urgent mask
-    mask = (snap["Fill"] >= fill_thresh) | (snap["Temp"] >= temp_thresh) | (snap["Battery"] <= 3.0)
+    elif fmt == "PARQUET":
+        import io
+        buf = io.BytesIO()
+        df.to_parquet(buf, index=False)
+        data = buf.getvalue()
+        mime, ext = "application/octet-stream", "parquet"
 
-    urgent = snap[mask].copy()
-    if urgent.empty:
-        return urgent
+    elif fmt == "HTML":
+        html = df.to_html(index=False)
+        data = html.encode("utf-8")
+        mime, ext = "text/html", "html"
 
-    def classify(row):
-        if pd.isna(row["Fill"]) or pd.isna(row["Temp"]):
-            return "No sensor response"
-        if row["Fill"] >= 100:
-            return "Overflowing"
-        if row["Fill"] >= 85:
-            return "Approaching full"
-        if row["Temp"] >= 40:
-            return "Heat Warning"
-        if row["Battery"] <= 3.2:
-            return "Low Battery"
-        return None
+    elif fmt == "XML":
+        xml = df.to_xml(index=False)
+        data = xml.encode("utf-8")
+        mime, ext = "application/xml", "xml"
 
-    urgent["Alert"] = urgent.apply(classify, axis=1)
-    return urgent
+    elif fmt == "FEATHER":
+        import io
+        buf = io.BytesIO()
+        df.to_feather(buf)
+        data = buf.getvalue()
+        mime, ext = "application/octet-stream", "feather"
 
-@st.cache_data(ttl=2)
-def _cached_load():
-    return load_live_with_coords()
+    return data, mime, ext
+
+
+# === LAYOUT / UI HELPERS ===
+
+def double_column():
+    column1, _, column2= st.columns([1, .05, 1])
+    return column1,column2
+
+def triple_column():
+    column1, column2, column3 = st.columns([1, 1, 1])
+    return column1, column2, column3
+
+def two_to_one():
+    column1, _, column2 = st.columns([5, 0.05, 3])
+    return column1,column2
+
+def remove_elements():
+        st.markdown(
+        """
+            <style>
+            [data-testid="stElementToolbar"] {
+            display: none;
+            }
+
+            div[data-testid="stStatusWidget"] { display: none !important; }
+            #stDecoration { display: none !important; }
+            footer { visibility: hidden !important; }
+            </style>
+        """,
+        unsafe_allow_html=True  
+    )
+        
+# REFRESH CONTROLS
 
 def refresh_button(label: str = "Refresh Now", key: str | None = None) -> bool:
     with st.sidebar:
