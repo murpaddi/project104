@@ -1,0 +1,3 @@
+postgresql+psycopg2://postgres.uplrxiyofnwfxnqkhwkm:{PASSWORD}@aws-1-ap-southeast-2.pooler.supabase.com:6543/postgres?sslmode=require
+
+Replace {PASSWORD} with Database Password
